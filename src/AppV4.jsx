@@ -534,7 +534,7 @@ export default function AppV4() {
                 <p className="hint">A cota de referência vale no centro; o caimento desce na direção do azimute. Cada vértice pode ter cota própria:</p>
                 <div className="vertex-z">{p.polygon.map((v, i) => <NumberField key={i} label={`V${i + 1}`} aria-label={`Cota do vértice ${i + 1} da ${p.name}`} value={zs[i]} onCommit={z => updatePlatform(p.id, {polygon: p.polygon.map((q, k) => k === i ? {...q, z} : q)}, `${p.name}: cota do vértice ${i + 1} alterada.`)}/>)}</div>
               </details>
-              <SlopeFields label={p.name} benches={bn} end={p.end} onChange={(changes, text) => updatePlatform(p.id, changes, text)}/></>; })()}
+              <SlopeFields label={p.name} benches={bn} end={p.end} baseZ={p.elevation} onChange={(changes, text) => updatePlatform(p.id, changes, text)}/></>; })()}
             {d?.error && <p className="field-error">{d.error}</p>}
             {d?.volume && <div className="volume-card compact"><div><span>Corte</span><b className="cut">{fmt(d.volume.cut, 1)} m³</b><small>h máx {fmt(d.mesh.stats.maxCut)} m</small></div><div><span>Aterro</span><b className="fill">{fmt(d.volume.fill, 1)} m³</b><small>h máx {fmt(d.mesh.stats.maxFill)} m</small></div><div className="net"><span>Saldo · área ocupada</span><b>{fmt(d.volume.net, 1)} m³ · {fmt(d.volume.footprint, 0)} m²</b></div></div>}
             {d?.mesh?.warnings.map(w => <p key={w} className="warn">⚠ {w}</p>)}

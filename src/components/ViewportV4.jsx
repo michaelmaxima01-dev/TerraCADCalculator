@@ -216,7 +216,7 @@ export default function ViewportV4(props) {
     const dragUp = () => {
       if (!state.drag) return;
       cancelAnimationFrame(state.dragFrame); state.dragFrame = 0;
-      const {key} = state.drag; state.drag = null; controls.enabled = true;
+      const {key} = state.drag; state.drag = null; state.ignoreUp = false; controls.enabled = true; // soltou fora do desenho: o próximo clique vale
       latest.current.onHandleDrag?.(key, state.dragPos, 'end'); invalidate();
     };
     const dragKey = e => { if (e.key === 'Escape' && state.drag) { const {key, x, y} = state.drag; state.drag = null; controls.enabled = true; latest.current.onHandleDrag?.(key, {x, y}, 'cancel'); invalidate(); } };

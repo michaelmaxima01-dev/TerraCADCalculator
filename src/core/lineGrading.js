@@ -2,7 +2,7 @@
 // Linha aberta: talude para o lado escolhido (ou ambos), pontas retas. Linha fechada para fora: equivale a
 // uma plataforma com os vértices da base. Linha fechada para dentro: talude do contorno para o interior.
 import {buildLineBase, lineNearest} from './designLine.js';
-import {castSlopes, gridVolumes, slopeRise, slopeReach, meshDefaults, descendZ} from './slopes.js';
+import {castSlopes, gridVolumes, slopeRise, slopeReach, meshDefaults, depthDesign} from './slopes.js';
 import {signedArea, insidePolygonXY, designElevationAt, gradePlatform, platformVolumes} from './grading.js';
 import {triangleLocator} from './profile.js';
 
@@ -31,7 +31,7 @@ export function lineElevationAt(line, info, x, y, T) {
   if (!line.closed && (q.atEnd || (line.side !== 'both' && q.side !== line.side))) return null;
   if (q.d < 1e-12) return q.z;
   if (T === null || T === undefined) return null;
-  if (line.end?.mode === 'depth') { const z = descendZ(q.z, q.d, line.cutSlope, benchFor(line, 'cut'), line.end); return z < T ? z : null; }
+  if (line.end?.mode === 'depth') return depthDesign(q.z, q.d, line.cutSlope, benchFor(line, 'cut'), line.end, T);
   if (T > q.z) { const z = q.z + slopeRise(q.d, line.cutSlope, benchFor(line, 'cut')); return z < T ? z : null; }
   if (T < q.z) { const z = q.z - slopeRise(q.d, line.fillSlope, benchFor(line, 'fill')); return z > T ? z : null; }
   return null;

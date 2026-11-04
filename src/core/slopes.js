@@ -49,6 +49,16 @@ export function descendZ(zb, d, H, bench, end) {
   const fl = floorOf(end, zb);
   return Math.max(fl, zb - slopeRise(d, H, resolveBench(bench, zb - fl)));
 }
+/**
+ * Projeto no término por profundidade, dado o terreno T: corte onde o terreno está acima; aterro no trecho do talude
+ * (acima do fundo) que fica sobre o terreno; o fundo acima do terreno não é construído (null).
+ */
+export function depthDesign(zb, d, H, bench, end, T) {
+  const z = descendZ(zb, d, H, bench, end);
+  if (z < T) return z;
+  if (z > T && z > floorOf(end, zb) + 1e-9) return z;
+  return null;
+}
 /** Distância em planta para descer exatamente `rise` (inversa de slopeRise; com bancadas, termina no pé da face). */
 export function slopeRun(rise, H, bench = null) {
   if (!(rise > 0)) return 0;
@@ -169,29 +179,29 @@ export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, sp
       const fl = floorOf(depth.end, b.z), D = b.z - fl, bench = resolveBench(depth.bench, D), H = depth.H;
       if (bench) anyBench = true;
       const dFloor = slopeRun(D, H, bench);
-      const at = t => { const x = b.x + r.dx * t, y = b.y + r.dy * t, T = terrainAt(x, y); if (T === null) return null; const q = nearest(x, y), z = descendZ(q.z, q.d, H, depth.bench, depth.end); return {x, y, z, f: T - z, d: q.d}; };
+      const at = t => { const x = b.x + r.dx * t, y = b.y + r.dy * t, T = terrainAt(x, y); if (T === null) return null; const q = nearest(x, y), z = descendZ(q.z, q.d, H, depth.bench, depth.end); return {x, y, z, f: T - z, d: q.d, ok: z < T || (z > T && z > floorOf(depth.end, q.z) + 1e-9)}; };
       let lo = 0, prev = {x: b.x, y: b.y, z: b.z, d: 0, f: T0 - b.z}, endT = 0, status = 'far', floorStart = null;
       for (let t = step; t <= maxDistance + 1e-9; t += step) {
         const cur = at(t);
         if (!cur) { status = 'edge'; endT = lo; break; }
-        if (cur.f > 0) maxCut = Math.max(maxCut, cur.f);
+        if (cur.f > 0) maxCut = Math.max(maxCut, cur.f); else maxFill = Math.max(maxFill, -cur.f);
         if (side === 'inside' && cur.d + 1e-9 < prev.d) { status = 'ridge'; break; } // passou da aresta entre faces: a outra face cobre daqui
         if (side === 'inside' && cur.d >= dFloor) { // cava: o raio para no início do fundo
           let a = lo, cc = t; for (let k = 0; k < 40; k++) { const mid = (a + cc) / 2, v = at(mid); if (v && v.d < dFloor) a = mid; else cc = mid; }
           prev = at(cc) || cur; endT = cc; status = 'floor'; break;
         }
-        if (cur.f <= 0) {
+        if (!cur.ok) { // o fundo ficou acima do terreno (ou o talude encontrou o terreno): fim do projeto neste raio
           let a = lo, cc = t;
-          for (let k = 0; k < 40; k++) { const mid = (a + cc) / 2, v = at(mid); if (v && v.f > 0) a = mid; else cc = mid; }
-          prev = at(cc) || cur; endT = cc; status = 'ok'; break;
+          for (let k = 0; k < 40; k++) { const mid = (a + cc) / 2, v = at(mid); if (v && v.ok) a = mid; else cc = mid; }
+          prev = at(a) || cur; endT = a; status = 'ok'; break;
         }
         lo = t; prev = cur; endT = t;
       }
       if (status === 'edge') warnings.add('O fundo atinge o limite da superfície antes de encontrar o terreno.');
       if (status === 'far') warnings.add('O fundo não encontrou o terreno dentro da distância máxima.');
-      r.mode = 'cut';
+      r.mode = T0 >= b.z ? 'cut' : 'fill';
       const lastD = Math.min(prev.d, dFloor);
-      for (const br of slopeBreaks(H, bench, lastD - 1e-6)) { const v = at(tAtDistance(at, br.d, endT)); if (!v || v.f <= 0) continue; r.chain.push(vertices.push({x: v.x, y: v.y, z: v.z}) - 1); r.tags.push(`${br.kind}${br.k}`); }
+      for (const br of slopeBreaks(H, bench, lastD - 1e-6)) { const v = at(tAtDistance(at, br.d, endT)); if (!v || !v.ok) continue; r.chain.push(vertices.push({x: v.x, y: v.y, z: v.z}) - 1); r.tags.push(`${br.kind}${br.k}`); }
       if (side !== 'inside' && prev.d > dFloor + 1e-6) { const v = at(tAtDistance(at, dFloor, endT)); if (v) { floorStart = vertices.push({x: v.x, y: v.y, z: v.z}) - 1; r.chain.push(floorStart); r.tags.push('floor'); floorSet.add(floorStart); floorOutline.push(vertices[floorStart]); } }
       const end = {x: prev.x, y: prev.y, z: prev.z}, ei = vertices.push(end) - 1;
       r.chain.push(ei); r.tags.push('end'); daylight.push(end);

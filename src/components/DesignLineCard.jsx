@@ -36,7 +36,7 @@ export default function DesignLineCard({line, design, selected, onSelect, onChan
     </details>
     <div className="two"><NumberField label="Corte H:V" aria-label={`Talude de corte da ${label}`} value={line.cutSlope} min="0.01" digits={2} onCommit={val => onChange({cutSlope: val})}/><NumberField label="Aterro H:V" aria-label={`Talude de aterro da ${label}`} value={line.fillSlope} min="0.01" digits={2} onCommit={val => onChange({fillSlope: val})}/></div>
     <p className="hint">Face do corte: 1 m de altura × {fmt(line.cutSlope, 2)} m de afastamento · aterro: 1 × {fmt(line.fillSlope, 2)}.</p>
-    <SlopeFields label={label} benches={line.benches} end={line.end} onChange={onChange}/>
+    <SlopeFields label={label} benches={line.benches} end={line.end} onChange={onChange} baseZ={Number.isFinite(m?.piZ?.[0]) ? m.piZ[0] : e.start}/>
     {design?.error && <p className="field-error">{design.error}</p>}
     {v && <div className="volume-card compact"><div><span>Corte</span><b className="cut">{fmt(v.cut, 1)} m³</b><small>h máx {fmt(m.stats.maxCut)} m</small></div><div><span>Aterro</span><b className="fill">{fmt(v.fill, 1)} m³</b><small>h máx {fmt(m.stats.maxFill)} m</small></div><div className="net"><span>Saldo · área ocupada</span><b>{fmt(v.net, 1)} m³ · {fmt(v.footprint, 0)} m²</b></div></div>}
     {m?.warnings?.map(w => <p key={w} className="warn">⚠ {w}</p>)}

@@ -284,3 +284,47 @@ test('exportação da cava: fundo, contorno do fundo, pé e face das bermas em c
   const dxf = toDXF({points, triangles, designs: [{kind: 'line', line: l, mesh}]});
   for (const layer of ['TC_FUNDO', 'TC_LP_FUNDO', 'TC_LP_PE', 'TC_LP_CRISTA', 'TC_BERMA_FACE']) assert.match(dxf, new RegExp(`\\n${layer}\\r?\\n`), layer);
 });
+
+// ---------- Revisão final ----------
+test('revisão 1: ponto do mais próximo longe da linha é rápido e igual à busca completa', () => {
+  const pis = Array.from({length: 20}, (_, i) => ({x: i * 5, y: 3 * Math.sin(i), radius: i % 3 === 1 ? 2 : undefined}));
+  const info = buildLineBase(validateDesignLine({pis}));
+  const t0 = performance.now();
+  for (let k = 0; k < 400; k++) { const x = -3000 + k * 15, y = 2000 - k * 9; assert.deepEqual(lineNearest(info, x, y), lineNearest(info, x, y, {brute: true})); }
+  assert.ok(performance.now() - t0 < 300, `lento: ${performance.now() - t0} ms`);
+});
+
+test('revisão 1: profundidade com linha curta num terreno de 1 km não trava', () => {
+  const {points, triangles} = planeTerrain(() => 105, {min: -500, max: 500, step: 100});
+  const l = validateDesignLine({pis: Array.from({length: 20}, (_, i) => ({x: i * 5, y: 0})), elevation: {mode: 'ramp', start: 100, slope: 0}, end: {mode: 'depth', depth: 3}});
+  const t0 = performance.now(); const v = lineVolumes(points, triangles, l, {maxCells: 12000});
+  assert.ok(Number.isFinite(v.cut)); assert.ok(performance.now() - t0 < 3000, `lento: ${performance.now() - t0} ms`);
+});
+
+test('revisão 2: profundidade com a base acima do terreno conta o aterro e gera malha', () => {
+  const points = []; for (let x = -40; x <= 140; x += 20) for (const y of [-10, 0, 10, 20]) points.push({id: `T${points.length}`, x, y, z: 100, description: ''});
+  const triangles = buildSurface(points).triangles;
+  const l = validateDesignLine({pis: [{x: 0, y: 0}, {x: 100, y: 0}], side: 'right', cutSlope: 1, elevation: {mode: 'ramp', start: 102, slope: 0}, end: {mode: 'depth', depth: 5}});
+  const v = lineVolumes(points, triangles, l, {maxCells: 400000});
+  close(v.fill, 100 * 2, 200 * 0.01, 'aterro: cunha de 2 m entre a linha e o terreno');           // ∫0..2 (2 − d) dd × 100
+  close(v.cut, 100 * (4.5 + 3 * 5), 1950 * 0.01, 'corte: talude de 2 a 5 m + fundo a 3 m até y = −10');
+  const m = gradeLine(points, triangles, l);
+  assert.ok(m.types.filter(t => t !== 'wall').length > 20, 'malha do talude e do fundo');
+});
+
+test('revisão 3: linha fechada com raio grande nos cantos (tanque) não falha', () => {
+  const {points, triangles} = planeTerrain(() => 104);
+  for (const radius of [20, 1000]) {
+    const l = validateDesignLine({pis: [{x: 20, y: 20, radius}, {x: 60, y: 20, radius}, {x: 60, y: 60, radius}, {x: 20, y: 60, radius}], closed: true, side: 'outside', elevation: {mode: 'ramp', start: 100, slope: 0}});
+    const m = gradeLine(points, triangles, l); assert.ok(m.triangles.length > 0, `raio ${radius}`);
+    const v = lineVolumes(points, triangles, l); assert.ok(v.cut > 0 && Number.isFinite(v.cut));
+    const b = m.base; for (let i = 1; i < b.length; i++) assert.ok(Math.hypot(b[i].x - b[i - 1].x, b[i].y - b[i - 1].y) > 1e-6, 'sem pontos repetidos na base');
+  }
+});
+
+test('revisão 4: DXF da linha "dois lados" exporta um offset por lado', () => {
+  const {points, triangles} = planeTerrain(() => 105);
+  const l = reta({side: 'both'}), mesh = gradeLine(points, triangles, l);
+  const dxf = toDXF({points, triangles, designs: [{kind: 'line', line: l, mesh}]});
+  assert.equal((dxf.match(/POLYLINE\r?\n\s*8\r?\nTC_LP_OFFSET\r?\n/g) || []).length, 2);
+});

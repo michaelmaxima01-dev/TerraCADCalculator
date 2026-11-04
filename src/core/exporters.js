@@ -64,7 +64,7 @@ export function toDXF(model, options = {}) {
       if (d.mesh.base?.length > 1) out += polyline3D(DXF_LAYERS.LP_EIXO.name, d.mesh.base.map(p => [p.x, p.y, p.z]), d.line.closed);
       (d.mesh.benchLines || []).forEach((line, k) => { out += polyline3D(d.mesh.benchLineKinds?.[k] === 'toe' ? DXF_LAYERS.LP_PE.name : DXF_LAYERS.LP_CRISTA.name, line.map(p => [p.x, p.y, p.z]), false); });
       if (d.mesh.floorOutline?.length > 1) out += polyline3D(DXF_LAYERS.LP_FUNDO.name, d.mesh.floorOutline.map(p => [p.x, p.y, p.z]), d.line.closed);
-      if (d.mesh.daylight.length > 1) out += polyline3D(DXF_LAYERS.LP_OFFSET.name, d.mesh.daylight.map(p => [p.x, p.y, p.z]), d.line.closed);
+      for (const run of d.mesh.daylightRuns || [d.mesh.daylight]) if (run.length > 1) out += polyline3D(DXF_LAYERS.LP_OFFSET.name, run.map(p => [p.x, p.y, p.z]), d.line.closed);
       continue;
     }
     out += polyline3D(DXF_LAYERS.PLAT_BORDA.name, d.platform.polygon.map(p => [p.x, p.y, Number.isFinite(p.z) ? p.z : d.platform.elevation]), true);

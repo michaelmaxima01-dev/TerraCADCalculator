@@ -10,7 +10,7 @@
 // sobrepõe taludes em cantos reentrantes e gera cantos convexos arredondados.
 import cdt2d from 'cdt2d';
 import {triangleLocator} from './profile.js';
-import {BENCH_DEFAULT, validateBenches, slopeRise, slopeReach, slopeBreaks, castSlopes, gridVolumes, meshDefaults, validateEnd, checkBenchEnd, descendZ} from './slopes.js';
+import {BENCH_DEFAULT, validateBenches, slopeRise, slopeReach, slopeBreaks, castSlopes, gridVolumes, meshDefaults, validateEnd, checkBenchEnd, depthDesign} from './slopes.js';
 export {BENCH_DEFAULT, validateBenches, slopeRise, slopeReach, slopeBreaks};
 import {compileLine, lineElevationAt} from './lineGrading.js';
 
@@ -109,7 +109,7 @@ export function designElevationAt(platform, x, y, terrainZ) {
   if (insidePolygonXY(x, y, c.poly)) return c.interior(x, y);
   if (terrainZ === null || terrainZ === undefined) return null;
   const {d, z: zb} = c.nearest(x, y);
-  if (platform.end?.mode === 'depth') { const z = descendZ(zb, d, platform.cutSlope, c.benchCut, platform.end); return z < terrainZ ? z : null; }
+  if (platform.end?.mode === 'depth') return depthDesign(zb, d, platform.cutSlope, c.benchCut, platform.end, terrainZ);
   if (terrainZ > zb) { const z = zb + slopeRise(d, platform.cutSlope, c.benchCut); return z < terrainZ ? z : null; }
   if (terrainZ < zb) { const z = zb - slopeRise(d, platform.fillSlope, c.benchFill); return z > terrainZ ? z : null; }
   return null;

@@ -8,7 +8,7 @@ const fmt2 = v => Number(v).toLocaleString('pt-BR', {minimumFractionDigits: 2, m
  * Bermas/bancadas e término do talude (mesmos campos para linha de projeto e plataforma).
  * @param {{label:string, benches:object, end:object, onChange:(changes:{benches?:object, end?:object}, text?:string)=>void}} props
  */
-export default function SlopeFields({label, benches, end, onChange}) {
+export default function SlopeFields({label, benches, end, onChange, baseZ = null}) {
   const bn = {...BENCH_DEFAULT, startAfter: 0, count: null, ...benches}, en = end || {mode: 'terrain', depth: 8, floorZ: null};
   const [openBench, setOpenBench] = useState(bn.enabled), [openEnd, setOpenEnd] = useState(en.mode === 'depth');
   const depthMode = en.mode === 'depth', byCount = depthMode && bn.count > 0;
@@ -34,7 +34,7 @@ export default function SlopeFields({label, benches, end, onChange}) {
         const v = e.target.value;
         if (v === 'terrain') onChange({end: {...en, mode: 'terrain'}, benches: {...bn, count: null}}, `${label}: talude até o terreno.`);
         else if (v === 'depth') onChange({end: {...en, mode: 'depth', floorZ: null}}, `${label}: desce ${fmt2(en.depth)} m e segue num fundo plano.`);
-        else onChange({end: {...en, mode: 'depth', floorZ: Number.isFinite(en.floorZ) ? en.floorZ : 0}}, `${label}: desce até a cota final; informe a cota.`);
+        else { const fz = Number.isFinite(en.floorZ) ? en.floorZ : Number.isFinite(baseZ) ? Math.round((baseZ - en.depth) * 100) / 100 : null; if (fz === null) { onChange({end: {...en, mode: 'depth', floorZ: null}}, `${label}: informe a profundidade.`); return; } onChange({end: {...en, mode: 'depth', floorZ: fz}}, `${label}: desce até a cota final ${fmt2(fz)} (cota da linha − ${fmt2(en.depth)} m); ajuste se precisar.`); }
       }}><option value="terrain">Até encontrar o terreno</option><option value="depth">Descer uma profundidade</option><option value="floor">Descer até uma cota final</option></select></label>
       {depthMode && en.floorZ === null && <NumberField label="Profundidade (m)" aria-label={`Profundidade da ${label}`} value={en.depth} min="0.1" digits={2} onCommit={v => onChange({end: {...en, depth: v}})}/>}
       {depthMode && en.floorZ !== null && <NumberField label="Cota final (fundo)" aria-label={`Cota final da ${label}`} value={en.floorZ} digits={3} onCommit={v => onChange({end: {...en, floorZ: v}})}/>}

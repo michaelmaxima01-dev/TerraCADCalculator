@@ -110,6 +110,12 @@ export function buildLineBase(line, terrainAt = null) {
     }
     curves.push({pi: i, radius: R, clamped, T, arcLength: R * delta, center: c});
   }
+  // pontos coincidentes (ex.: dois arcos vizinhos limitados à metade do trecho) viram um só, mantendo a âncora
+  for (let k = pts.length - 1; k >= 1; k--) {
+    const a = pts[k - 1], b = pts[k];
+    if (Math.hypot(a.x - b.x, a.y - b.y) < 1e-6) { if (a.anchor === undefined && b.anchor !== undefined) a.anchor = b.anchor; if (a.arcMid === undefined && b.arcMid !== undefined) a.arcMid = b.arcMid; pts.splice(k, 1); }
+  }
+  if (closed && pts.length > 1 && Math.hypot(pts[0].x - pts.at(-1).x, pts[0].y - pts.at(-1).y) < 1e-6) { const b = pts.pop(); if (pts[0].anchor === undefined && b.anchor !== undefined) pts[0].anchor = b.anchor; }
   // estacas
   let s = 0;
   const base = pts.map((p, k) => { if (k) s += Math.hypot(p.x - pts[k - 1].x, p.y - pts[k - 1].y); return {x: p.x, y: p.y, z: 0, s}; });
@@ -176,10 +182,15 @@ export function lineNearest(info, x, y, {brute = false} = {}) {
   const ci = Math.floor((x - ix.minX) / ix.cell), cj = Math.floor((y - ix.minY) / ix.cell), tick = ++ix.tick;
   if (tick > 2e9) { ix.stamp.fill(0); ix.tick = 1; }
   const far = Math.max(Math.abs(ci), Math.abs(cj), Math.abs(ci - ix.ni), Math.abs(cj - ix.nj)) + 1;
-  const scan = (u, w) => { const l = ix.cells.get(ix.key(u, w)); if (l) for (const i of l) if (ix.stamp[i] !== ix.tick) { ix.stamp[i] = ix.tick; visit(i); } };
-  for (let r = 0; r <= far; r++) {
+  // anel mínimo que já toca a grade (pontos longe da linha não varrem células vazias fora dela)
+  const r0 = Math.max(0, -ci, ci - ix.ni, -cj, cj - ix.nj);
+  const scan = (u, w) => { if (u < 0 || w < 0 || u > ix.ni || w > ix.nj) return; const l = ix.cells.get(ix.key(u, w)); if (l) for (const i of l) if (ix.stamp[i] !== ix.tick) { ix.stamp[i] = ix.tick; visit(i); } };
+  for (let r = r0; r <= far; r++) {
     if (r === 0) scan(ci, cj);
-    else { for (let u = ci - r; u <= ci + r; u++) { scan(u, cj - r); scan(u, cj + r); } for (let w = cj - r + 1; w <= cj + r - 1; w++) { scan(ci - r, w); scan(ci + r, w); } }
+    else {
+      for (let u = Math.max(ci - r, 0); u <= Math.min(ci + r, ix.ni); u++) { scan(u, cj - r); scan(u, cj + r); }
+      for (let w = Math.max(cj - r + 1, 0); w <= Math.min(cj + r - 1, ix.nj); w++) { scan(ci - r, w); scan(ci + r, w); }
+    }
     // tudo que falta está a pelo menos r·cell do ponto: pode parar quando o melhor já é mais perto (com folga de empate)
     if (best.d + 1e-9 < r * ix.cell) break;
   }
