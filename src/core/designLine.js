@@ -1,9 +1,9 @@
 // Linha de projeto: PIs editáveis, curvas de canto com raio, estaqueamento e cota da linha.
 // A geometria daqui alimenta os taludes (lineGrading.js): a "base" é a polilinha 3D já com os arcos
 // discretizados e a estaca s (comprimento 2D acumulado) em cada vértice.
-import {validateBenches} from './slopes.js';
+import {validateBenches, validateEnd, checkBenchEnd} from './slopes.js';
 
-const ELEV_MODES = ['ramp', 'pis', 'terrain'], OPEN_SIDES = ['left', 'right', 'both'], CLOSED_SIDES = ['outside', 'inside'], END_MODES = ['terrain', 'depth'];
+const ELEV_MODES = ['ramp', 'pis', 'terrain'], OPEN_SIDES = ['left', 'right', 'both'], CLOSED_SIDES = ['outside', 'inside'];
 const MAX_SAGITTA = 0.02, MAX_STEP = 3 * Math.PI / 180;
 const num = (v, d) => v === undefined || v === null || v === '' ? d : Number(v);
 const fmt = v => Number(v).toLocaleString('pt-BR', {maximumFractionDigits: 2});
@@ -64,12 +64,9 @@ export function validateDesignLine(l) {
   if (!(closed ? CLOSED_SIDES : OPEN_SIDES).includes(side)) throw Error(closed ? 'Linha fechada: o talude vai para fora ou para dentro.' : 'Linha aberta: o talude vai para a esquerda, a direita ou os dois lados.');
   const cutSlope = num(l.cutSlope, 1), fillSlope = num(l.fillSlope, 1.5);
   if (!(cutSlope > 0 && cutSlope <= 100) || !(fillSlope > 0 && fillSlope <= 100)) throw Error('Inclinações dos taludes devem estar entre 0 e 100 (H:V).');
-  const en = l.end || {}, endMode = en.mode ?? 'terrain';
-  if (!END_MODES.includes(endMode)) throw Error('Término do talude inválido.');
-  const end = {mode: endMode, depth: num(en.depth, 8), floorZ: en.floorZ === undefined || en.floorZ === '' ? null : en.floorZ === null ? null : Number(en.floorZ)};
-  if (!(end.depth > 0)) throw Error('A profundidade deve ser maior que zero.');
-  if (end.floorZ !== null && !Number.isFinite(end.floorZ)) throw Error('Cota final inválida.');
-  return {id: String(l.id || ''), name: String(l.name || 'Linha'), visible: l.visible !== false, closed, pis, elevation, side, cutSlope, fillSlope, benches: validateBenches(l.benches), end};
+  const end = validateEnd(l.end), benches = validateBenches(l.benches);
+  checkBenchEnd(benches, end);
+  return {id: String(l.id || ''), name: String(l.name || 'Linha'), visible: l.visible !== false, closed, pis, elevation, side, cutSlope, fillSlope, benches, end};
 }
 
 /**

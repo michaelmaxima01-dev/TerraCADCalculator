@@ -10,7 +10,7 @@
 // sobrepõe taludes em cantos reentrantes e gera cantos convexos arredondados.
 import cdt2d from 'cdt2d';
 import {triangleLocator} from './profile.js';
-import {BENCH_DEFAULT, validateBenches, slopeRise, slopeReach, slopeBreaks, castSlopes, gridVolumes, meshDefaults} from './slopes.js';
+import {BENCH_DEFAULT, validateBenches, slopeRise, slopeReach, slopeBreaks, castSlopes, gridVolumes, meshDefaults, validateEnd, checkBenchEnd, descendZ} from './slopes.js';
 export {BENCH_DEFAULT, validateBenches, slopeRise, slopeReach, slopeBreaks};
 import {compileLine, lineElevationAt} from './lineGrading.js';
 
@@ -57,7 +57,9 @@ export function validatePlatform(p) {
   const elevation = Number(p.elevation), cutSlope = Number(p.cutSlope), fillSlope = Number(p.fillSlope);
   if (!Number.isFinite(elevation)) throw Error('Cota da plataforma inválida.');
   if (!(cutSlope > 0 && cutSlope <= 100) || !(fillSlope > 0 && fillSlope <= 100)) throw Error('Inclinações dos taludes devem estar entre 0 e 100 (H:V).');
-  return {id: String(p.id || ''), name: String(p.name || 'Plataforma'), polygon, elevation, cutSlope, fillSlope, benches: validateBenches(p.benches), visible: p.visible !== false};
+  const benches = validateBenches(p.benches), end = validateEnd(p.end);
+  checkBenchEnd(benches, end);
+  return {id: String(p.id || ''), name: String(p.name || 'Plataforma'), polygon, elevation, cutSlope, fillSlope, benches, end, visible: p.visible !== false};
 }
 
 /** Cota de cada vértice (a cota própria do vértice ou, sem ela, a cota da plataforma). */
@@ -107,6 +109,7 @@ export function designElevationAt(platform, x, y, terrainZ) {
   if (insidePolygonXY(x, y, c.poly)) return c.interior(x, y);
   if (terrainZ === null || terrainZ === undefined) return null;
   const {d, z: zb} = c.nearest(x, y);
+  if (platform.end?.mode === 'depth') { const z = descendZ(zb, d, platform.cutSlope, c.benchCut, platform.end); return z < terrainZ ? z : null; }
   if (terrainZ > zb) { const z = zb + slopeRise(d, platform.cutSlope, c.benchCut); return z < terrainZ ? z : null; }
   if (terrainZ < zb) { const z = zb - slopeRise(d, platform.fillSlope, c.benchFill); return z > terrainZ ? z : null; }
   return null;
@@ -161,6 +164,7 @@ export function gradePlatform(points, triangles, platform, {spacing, maxDistance
   const d = meshDefaults(points, perimeter);
   return castSlopes(poly, {closed: true, side: 'outside', terrainAt: elevationAt || triangleLocator(points, triangles), nearest: c.nearest,
     ruleFor: mode => mode === 'cut' ? {H: p.cutSlope, bench: c.benchCut} : {H: p.fillSlope, bench: c.benchFill},
+    depth: p.end.mode === 'depth' ? {end: p.end, H: p.cutSlope, bench: c.benchCut} : null,
     spacing: spacing > 0 ? spacing : d.spacing, maxDistance: maxDistance > 0 ? maxDistance : d.maxDistance});
 }
 
@@ -174,7 +178,8 @@ export function platformVolumes(points, triangles, platform, {cell, maxCells = 2
   let tminX = Infinity, tminY = Infinity, tmaxX = -Infinity, tmaxY = -Infinity, tminZ = Infinity, tmaxZ = -Infinity;
   for (const t of triangles) for (const i of t) { const q = points[i]; tminX = Math.min(tminX, q.x); tmaxX = Math.max(tmaxX, q.x); tminY = Math.min(tminY, q.y); tmaxY = Math.max(tmaxY, q.y); tminZ = Math.min(tminZ, q.z); tmaxZ = Math.max(tmaxZ, q.z); }
   // extensão máxima possível dos taludes
-  const reach = Math.max(slopeReach(tmaxZ - c.zMin, p.cutSlope, c.benchCut), slopeReach(c.zMax - tminZ, p.fillSlope, c.benchFill), 0);
+  // no término por profundidade o fundo segue até o terreno: integra no terreno todo
+  const reach = p.end.mode === 'depth' ? Infinity : Math.max(slopeReach(tmaxZ - c.zMin, p.cutSlope, c.benchCut), slopeReach(c.zMax - tminZ, p.fillSlope, c.benchFill), 0);
   let minX = Math.min(...poly.map(q => q.x)) - reach, maxX = Math.max(...poly.map(q => q.x)) + reach;
   let minY = Math.min(...poly.map(q => q.y)) - reach, maxY = Math.max(...poly.map(q => q.y)) + reach;
   minX = Math.max(minX, tminX); maxX = Math.min(maxX, tmaxX); minY = Math.max(minY, tminY); maxY = Math.min(maxY, tmaxY);

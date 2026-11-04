@@ -220,3 +220,58 @@ test('lineNearest com índice espacial dá o mesmo resultado da busca completa',
     assert.deepEqual(lineNearest(info, x, y), lineNearest(info, x, y, {brute: true}), `ponto ${x},${y}`);
   }
 });
+
+// ---------- Task 8: término por profundidade, fundo e cava ----------
+import {platformVolumes, gradePlatform, designElevationAt} from '../src/core/grading.js';
+
+const cava = (extra = {}) => validateDesignLine({pis: [{x: 0, y: 0}, {x: 40, y: 0}, {x: 40, y: 40}, {x: 0, y: 40}], closed: true, side: 'inside', elevation: {mode: 'ramp', start: 100, slope: 0}, cutSlope: 1, end: {mode: 'depth', depth: 8}, ...extra});
+
+test('cava quadrada até 8 m: volume = ∫(40 − 2z)² dz = (40³ − 24³)/6', () => {
+  const {points, triangles} = planeTerrain(() => 100);
+  const v = lineVolumes(points, triangles, cava(), {maxCells: 400000});
+  close(v.cut, 8362.6667, 8362.6667 * 0.005, 'cava'); assert.ok(v.fill < 1e-6);
+  const info = compileLine(cava(), null);
+  close(lineElevationAt(cava(), info, 20, 20, 100), 92, 1e-9, 'fundo'); close(lineElevationAt(cava(), info, 3, 20, 100), 97, 1e-9, 'talude');
+  assert.equal(lineElevationAt(cava(), info, -1, 20, 100), null, 'fora da cava');
+});
+
+test('2 bermas em 8 m: cristas a 8/3 e 16/3 abaixo da borda e fundo a 92', () => {
+  const {points, triangles} = planeTerrain(() => 100);
+  const l = cava({benches: {enabled: true, count: 2, width: 1, apply: 'cut'}});
+  const m = gradeLine(points, triangles, l);
+  const zs = [...new Set(m.benchLines.flatMap(b => b.map(v => Math.round(v.z * 1000) / 1000)))].sort((a, b) => a - b);
+  assert.deepEqual(zs, [Math.round((100 - 16 / 3) * 1000) / 1000, Math.round((100 - 8 / 3) * 1000) / 1000]);
+  const floorZ = m.triangles.filter((_, k) => m.types[k] === 'floor').flat().map(i => m.vertices[i].z);
+  assert.ok(floorZ.length > 0); floorZ.forEach(z => close(z, 92, 1e-6, 'fundo'));
+  assert.ok(m.floorOutline.length >= 4);
+});
+
+test('fundo sem terreno: para no limite da superfície com aviso e volume finito', () => {
+  const {points, triangles} = planeTerrain(() => 105, {min: -20, max: 60, step: 20});
+  const p = {polygon: [{x: 10, y: 10}, {x: 30, y: 10}, {x: 30, y: 30}, {x: 10, y: 30}], elevation: 100, cutSlope: 1, fillSlope: 1.5, end: {mode: 'depth', depth: 50}};
+  const m = gradePlatform(points, triangles, p);
+  assert.ok(m.warnings.some(w => /limite da superfície/.test(w)), m.warnings.join(' | '));
+  const v = platformVolumes(points, triangles, p); assert.ok(Number.isFinite(v.cut) && v.cut > 0);
+});
+
+test('morro cônico: plataforma no alto descendo 10 m confere com integração fina do modelo', () => {
+  const {points, triangles} = planeTerrain((x, y) => 150 - Math.hypot(x - 50, y - 50) / 2, {min: -50, max: 150, step: 5});
+  const at = triangleLocator(points, triangles);
+  const p = {polygon: [{x: 40, y: 40}, {x: 60, y: 40}, {x: 60, y: 60}, {x: 40, y: 60}], elevation: 140, cutSlope: 1, fillSlope: 1.5, end: {mode: 'depth', depth: 10}};
+  const v = platformVolumes(points, triangles, p, {maxCells: 250000});
+  let ref = 0; const h = 0.1;
+  for (let x = -50 + h / 2; x < 150; x += h) for (let y = -50 + h / 2; y < 150; y += h) { const T = at(x, y); if (T === null) continue; const D = designElevationAt(p, x, y, T); if (D !== null && T > D) ref += (T - D) * h * h; }
+  close(v.cut, ref, ref * 0.005, 'morro');
+  close(designElevationAt(p, 50, 70, at(50, 70)), 130, 1e-9, 'fundo a 10 m');
+});
+
+test('bermas por quantidade exigem término por profundidade', () => {
+  assert.throws(() => validateDesignLine({pis: [{x: 0, y: 0}, {x: 10, y: 0}], benches: {enabled: true, count: 2}}), /término por profundidade/);
+});
+
+test('cava: raios param na aresta entre faces (não atravessam até a borda oposta)', () => {
+  const {points, triangles} = planeTerrain(() => 100);
+  const m = gradeLine(points, triangles, cava({benches: {enabled: true, count: 2, width: 1, apply: 'cut'}}));
+  assert.equal(m.daylight.filter(v => Math.abs(v.z - 100) < 1e-6).length, 0, 'nenhum raio termina na borda');
+  m.daylight.forEach(v => assert.ok(v.z <= 100 && v.z >= 92 - 1e-6));
+});

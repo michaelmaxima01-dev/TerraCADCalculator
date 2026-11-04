@@ -27,6 +27,38 @@ export function validateBenches(b) {
   return {enabled: !!b.enabled, height, width, apply, startAfter, count};
 }
 
+const END_MODES = ['terrain', 'depth'];
+/** Término do talude: até o terreno, ou descendo `depth` m (ou até a cota `floorZ`) e seguindo num fundo plano. */
+export function validateEnd(en) {
+  const e = en || {}, mode = e.mode ?? 'terrain';
+  if (!END_MODES.includes(mode)) throw Error('Término do talude inválido.');
+  const depth = e.depth === undefined || e.depth === null || e.depth === '' ? 8 : Number(e.depth);
+  const floorZ = e.floorZ === undefined || e.floorZ === null || e.floorZ === '' ? null : Number(e.floorZ);
+  if (!(depth > 0)) throw Error('A profundidade deve ser maior que zero.');
+  if (floorZ !== null && !Number.isFinite(floorZ)) throw Error('Cota final inválida.');
+  return {mode, depth, floorZ};
+}
+/** Cota do fundo para uma base na cota zb (cota final, se informada, nunca acima da base). */
+export const floorOf = (end, zb) => end.floorZ !== null && end.floorZ !== undefined ? Math.min(end.floorZ, zb) : zb - end.depth;
+/** Recusa bermas por quantidade sem término por profundidade. */
+export function checkBenchEnd(benches, end) {
+  if (benches?.enabled && benches.count && end.mode !== 'depth') throw Error('Bermas por quantidade exigem término por profundidade: escolha a profundidade ou informe a altura da bancada.');
+}
+/** Cota de projeto descendo da base (zb) à distância d, até o fundo, com bancadas resolvidas para a profundidade. */
+export function descendZ(zb, d, H, bench, end) {
+  const fl = floorOf(end, zb);
+  return Math.max(fl, zb - slopeRise(d, H, resolveBench(bench, zb - fl)));
+}
+/** Distância em planta para descer exatamente `rise` (inversa de slopeRise; com bancadas, termina no pé da face). */
+export function slopeRun(rise, H, bench = null) {
+  if (!(rise > 0)) return 0;
+  if (!bench) return rise * H;
+  const s0 = startOf(H, bench);
+  if (bench.startAfter > 0 && rise <= bench.startAfter) return rise * H;
+  const rest = rise - s0.rise, k = Math.max(0, Math.ceil(rest / bench.height - 1e-12) - 1);
+  return s0.d + k * (bench.height * H + bench.width) + (rest - k * bench.height) * H;
+}
+
 /** Bancada efetiva: com `count` e uma profundidade, altura = profundidade / (count + 1) e sem `startAfter`. */
 export function resolveBench(bench, depth) {
   if (!bench || !bench.count || !(depth > 0)) return bench;
@@ -81,16 +113,25 @@ export function meshDefaults(points, baseLength) {
   return {spacing: Math.max(baseLength / 240, span / 400, 1e-3), maxDistance: span * 2};
 }
 
+/** Parâmetro t do raio em que a distância à base vale `d` (busca binária; d(t) é não decrescente). */
+function tAtDistance(at, d, tMax) {
+  let a = 0, b = tMax;
+  for (let k = 0; k < 40; k++) { const m = (a + b) / 2, v = at(m); if (v && v.d < d) a = m; else b = m; }
+  return b;
+}
+
 /**
  * Lança os taludes a partir de uma base (polilinha 3D) até o terreno e gera a malha.
  * @param {Array<{x,y,z}>} base fechada: sentido anti-horário; aberta: sentido do traçado
  * @param {{closed:boolean, side:'outside'|'inside'|'right'|'left', terrainAt:(x,y)=>number|null, nearest:(x,y)=>{d:number,z:number},
- *   ruleFor:(mode:'cut'|'fill')=>{H:number, bench:object|null}, spacing:number, maxDistance:number}} opts
+ *   ruleFor:(mode:'cut'|'fill')=>{H:number, bench:object|null}, spacing:number, maxDistance:number,
+ *   depth?:{end:{mode,depth,floorZ}, H:number, bench:object|null}}} opts  depth: o talude desce da base até o fundo (corte)
+ *   e o fundo segue plano até o terreno; com side 'inside' o fundo é o polígono das pontas dos raios.
  *   'outside' (fechada) e 'right' usam a normal à direita do segmento; 'left' e 'inside' invertem a base ('inside' sem interior). Na base aberta, as pontas
  *   recebem um único raio perpendicular (pontas retas).
  * @returns {{vertices, triangles, types, daylight, hatch, benchLines, warnings:string[], stats:{maxCut,maxFill,rays}}}
  */
-export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, spacing, maxDistance}) {
+export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, spacing, maxDistance, depth = null}) {
   const poly = side === 'left' || side === 'inside' ? base0.slice().reverse() : base0, n = poly.length, warnings = new Set();
   const segCount = closed ? n : n - 1;
   const normal = i => { const a = poly[i], b = poly[(i + 1) % n], l = Math.hypot(b.x - a.x, b.y - a.y) || 1; return {x: (b.y - a.y) / l, y: -(b.x - a.x) / l}; };
@@ -119,11 +160,45 @@ export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, sp
   }
   // 2. Offset por raio, com o mesmo modelo usado no volume; vértices nas quebras das bermas
   let maxCut = 0, maxFill = 0, anyBench = false;
-  const step = spacing / 2, vertices = base.slice(), daylight = [], hatch = [];
+  const step = spacing / 2, vertices = base.slice(), daylight = [], hatch = [], floorSet = new Set(), floorOutline = [];
   for (const r of rays) {
     const b = base[r.base], T0 = terrainAt(b.x, b.y);
     r.chain = [r.base]; r.mode = 'none'; r.tags = [null];
     if (T0 === null) { warnings.add('Parte da base do talude está fora do terreno.'); daylight.push(b); continue; }
+    if (depth) { // desce da base até o fundo; o fundo segue plano até o terreno (ou termina na cava)
+      const fl = floorOf(depth.end, b.z), D = b.z - fl, bench = resolveBench(depth.bench, D), H = depth.H;
+      if (bench) anyBench = true;
+      const dFloor = slopeRun(D, H, bench);
+      const at = t => { const x = b.x + r.dx * t, y = b.y + r.dy * t, T = terrainAt(x, y); if (T === null) return null; const q = nearest(x, y), z = descendZ(q.z, q.d, H, depth.bench, depth.end); return {x, y, z, f: T - z, d: q.d}; };
+      let lo = 0, prev = {x: b.x, y: b.y, z: b.z, d: 0, f: T0 - b.z}, endT = 0, status = 'far', floorStart = null;
+      for (let t = step; t <= maxDistance + 1e-9; t += step) {
+        const cur = at(t);
+        if (!cur) { status = 'edge'; endT = lo; break; }
+        if (cur.f > 0) maxCut = Math.max(maxCut, cur.f);
+        if (side === 'inside' && cur.d + 1e-9 < prev.d) { status = 'ridge'; break; } // passou da aresta entre faces: a outra face cobre daqui
+        if (side === 'inside' && cur.d >= dFloor) { // cava: o raio para no início do fundo
+          let a = lo, cc = t; for (let k = 0; k < 40; k++) { const mid = (a + cc) / 2, v = at(mid); if (v && v.d < dFloor) a = mid; else cc = mid; }
+          prev = at(cc) || cur; endT = cc; status = 'floor'; break;
+        }
+        if (cur.f <= 0) {
+          let a = lo, cc = t;
+          for (let k = 0; k < 40; k++) { const mid = (a + cc) / 2, v = at(mid); if (v && v.f > 0) a = mid; else cc = mid; }
+          prev = at(cc) || cur; endT = cc; status = 'ok'; break;
+        }
+        lo = t; prev = cur; endT = t;
+      }
+      if (status === 'edge') warnings.add('O fundo atinge o limite da superfície antes de encontrar o terreno.');
+      if (status === 'far') warnings.add('O fundo não encontrou o terreno dentro da distância máxima.');
+      r.mode = 'cut';
+      const lastD = Math.min(prev.d, dFloor);
+      for (const br of slopeBreaks(H, bench, lastD - 1e-6)) { const v = at(tAtDistance(at, br.d, endT)); if (!v || v.f <= 0) continue; r.chain.push(vertices.push({x: v.x, y: v.y, z: v.z}) - 1); r.tags.push(`${br.kind}${br.k}`); }
+      if (side !== 'inside' && prev.d > dFloor + 1e-6) { const v = at(tAtDistance(at, dFloor, endT)); if (v) { floorStart = vertices.push({x: v.x, y: v.y, z: v.z}) - 1; r.chain.push(floorStart); r.tags.push('floor'); floorSet.add(floorStart); floorOutline.push(vertices[floorStart]); } }
+      const end = {x: prev.x, y: prev.y, z: prev.z}, ei = vertices.push(end) - 1;
+      r.chain.push(ei); r.tags.push('end'); daylight.push(end);
+      if (status === 'floor') { floorSet.add(ei); floorOutline.push(end); }
+      else if (floorStart !== null) floorSet.add(ei);
+      continue;
+    }
     if (Math.abs(T0 - b.z) <= 1e-9) { daylight.push(b); continue; }
     const mode = T0 > b.z ? 'cut' : 'fill';
     if (mode === 'cut') maxCut = Math.max(maxCut, T0 - b.z); else maxFill = Math.max(maxFill, b.z - T0);
@@ -134,6 +209,7 @@ export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, sp
     for (let t = step; t <= maxDistance + 1e-9; t += step) {
       const cur = at(t);
       if (!cur) { status = 'edge'; endT = lo; break; }
+      if (side === 'inside' && cur.d + 1e-9 < prev.d) { status = 'ridge'; break; } // passou da aresta entre faces
       if (cur.f <= 0) {
         let a = lo, cc = t;
         for (let k = 0; k < 40; k++) { const mid = (a + cc) / 2, v = at(mid); if (v && v.f > 0) a = mid; else cc = mid; }
@@ -144,9 +220,8 @@ export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, sp
     if (status === 'edge') warnings.add('Talude atinge o limite da superfície antes de encontrar o terreno.');
     if (status === 'far') warnings.add('Talude não encontrou o terreno dentro da distância máxima.');
     r.mode = mode;
-    const ratio = endT > 0 && prev.d > 0 ? endT / prev.d : 1;
     for (const br of slopeBreaks(H, bench, prev.d - 1e-6)) {
-      const v = at(br.d * ratio); if (!v || v.f <= 0) continue;
+      const v = at(tAtDistance(at, br.d, endT)); if (!v || v.f <= 0) continue;
       r.chain.push(vertices.push({x: v.x, y: v.y, z: v.z}) - 1); r.tags.push(`${br.kind}${br.k}`);
     }
     const end = {x: prev.x, y: prev.y, z: prev.z};
@@ -166,13 +241,24 @@ export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, sp
   }
   // 3. Triangulação: interior (fechada) + faixas de talude entre raios (costura)
   const tris = [], types = [];
+  if (depth && side === 'inside' && floorOutline.length >= 3) { // fundo da cava
+    // pontos do fundo triangulados sem restrição; ficam só os triângulos cujo centro está mesmo no fundo
+    const idx = [...floorSet], o = vertices[idx[0]];
+    try {
+      cdt2d(idx.map(i => [vertices[i].x - o.x, vertices[i].y - o.y]), [], {delaunay: true}).forEach(t => {
+        const [a, b, c] = t.map(k => vertices[idx[k]]), cx = (a.x + b.x + c.x) / 3, cy = (a.y + b.y + c.y) / 3, q = nearest(cx, cy);
+        if (descendZ(q.z, q.d, depth.H, depth.bench, depth.end) <= floorOf(depth.end, q.z) + 1e-6) { tris.push(t.map(k => idx[k])); types.push('floor'); }
+      });
+    } catch { warnings.add('O fundo da cava não pôde ser triangulado; os volumes não são afetados.'); }
+  }
   if (closed && side !== 'inside') {
     const o = base[0], loop = base.map((_, i) => [i, (i + 1) % base.length]);
     cdt2d(base.map(q => [q.x - o.x, q.y - o.y]), loop, {delaunay: true, exterior: false}).forEach(t => { tris.push(t); types.push('platform'); });
   }
   const area2 = (a, b, cc) => Math.abs(cross(vertices[a], vertices[b], vertices[cc]));
   const typeOf = (r1, r2) => r1.mode === r2.mode ? r1.mode : r1.mode === 'none' ? r2.mode : r2.mode === 'none' ? r1.mode : 'mixed';
-  const add = (t, r1, r2) => { if (t[0] === t[1] || t[1] === t[2] || t[0] === t[2] || area2(...t) < 1e-10) return; tris.push(t); types.push(typeOf(r1, r2)); };
+  const flatTri = t => Math.abs(vertices[t[0]].z - vertices[t[1]].z) < 1e-6 && Math.abs(vertices[t[1]].z - vertices[t[2]].z) < 1e-6;
+  const add = (t, r1, r2) => { if (t[0] === t[1] || t[1] === t[2] || t[0] === t[2] || area2(...t) < 1e-10) return; tris.push(t); types.push(t.every(i => floorSet.has(i)) ? 'floor' : anyBench && flatTri(t) ? 'bench' : typeOf(r1, r2)); };
   const param = r => { const L = r.chain.length - 1; return r.chain.map((_, i) => L ? i / L : 0); };
   const strips = closed ? rays.length : rays.length - 1;
   for (let k = 0; k < strips; k++) {
@@ -184,7 +270,7 @@ export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, sp
       if (advA) { add([A[i], B[j], A[i + 1]], r1, r2); i++; } else { add([A[i], B[j], B[j + 1]], r1, r2); j++; }
     }
   }
-  return {vertices, triangles: tris, types, daylight, hatch, benchLines, warnings: [...warnings], stats: {maxCut, maxFill, rays: rays.length}};
+  return {vertices, triangles: tris, types, daylight, hatch, benchLines, floorOutline, warnings: [...warnings], stats: {maxCut, maxFill, rays: rays.length}};
 }
 
 /**
