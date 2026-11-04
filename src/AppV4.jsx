@@ -3,6 +3,7 @@ import Viewport from './components/ViewportV4';
 import PointTools from './components/PointTools';
 import ProfileEditor from './components/ProfileEditor';
 import SectionViewer from './components/SectionViewer';
+import CadImportDialog from './components/CadImportDialog';
 import {pointGroups, upsertPoint} from './core/points';
 import {editEdge} from './core/tin';
 import {buildSurface} from './core/surface';
@@ -76,7 +77,7 @@ export default function AppV4() {
   const [schema, setSchema] = useState('auto'), [mappingText, setMappingText] = useState('P,E,N,Z,D'), [edgeDraft, setEdgeDraft] = useState('0');
   const [snap, setSnap] = useState(true), [snapModes, setSnapModes] = useState({node: true, vertex: true, midpoint: true, nearest: false}), [snapAperture, setSnapAperture] = useState(18);
   const [zoomSensitivity, setZoomSensitivity] = useState(1), [crosshair, setCrosshair] = useState(true), [fitKey, setFitKey] = useState(0), [densify, setDensify] = useState(true);
-  const [showTable, setShowTable] = useState(false), [showProfileDock, setShowProfileDock] = useState(true), [help, setHelp] = useState(false), [revision, setRevision] = useState(0);
+  const [showTable, setShowTable] = useState(false), [showProfileDock, setShowProfileDock] = useState(true), [help, setHelp] = useState(false), [revision, setRevision] = useState(0), [cadImport, setCadImport] = useState(null);
   const [contourStyle, setContourStyle] = useState(defaultContours), [contourDraft, setContourDraft] = useState({interval: '1', majorEvery: '5'});
   const [referenceDraft, setReferenceDraft] = useState(''), [dxfOptions, setDxfOptions] = useState({tin: true, points: true, labels: true, contours: true, design: true, grade: true, sections: false});
   const [selectedPlatform, setSelectedPlatform] = useState(null), [sectionSettings, setSectionSettings] = useState({interval: 20, halfWidth: 30}), [sectionIndex, setSectionIndex] = useState(0), [equalScale, setEqualScale] = useState(false);
@@ -150,6 +151,12 @@ export default function AppV4() {
   async function importFile(e) {
     const file = e.target.files[0]; e.target.value = ''; if (!file) return;
     try {
+      if (/\.(dwg|dxf)$/i.test(file.name)) {
+        if (file.size > 80e6) throw Error('Limite: 80 MB por desenho. Remova imagens e referências externas (XREF) e salve de novo.');
+        setMessage(`Lendo ${file.name}…${/\.dwg$/i.test(file.name) ? ' Na primeira vez o leitor de DWG (~11 MB) é baixado.' : ''}`);
+        const result = await run('cad', {bytes: await file.arrayBuffer(), name: file.name});
+        setCadImport({fileName: file.name, ...result}); setMessage(`${file.name}: escolha o que importar.`); return;
+      }
       if (file.size > 10e6) throw Error('Limite: 10 MB por arquivo.');
       let mapping = null;
       if (schema === 'custom') {
@@ -160,6 +167,15 @@ export default function AppV4() {
       const result = await run('import', {text: await file.text(), options: {schema, mapping}});
       commit({points: result.points, mesh: result.mesh, breaklines: [], boundary: [], maxEdge: 0, ...emptyDesign}, `${file.name}: ${result.points.length} pontos; ${result.errors.length} linhas rejeitadas. Defina um contorno para recortar o levantamento.`);
       setErrors(result.errors); setGroup(''); setEdgeDraft('0'); setReferenceDraft(''); setSelectedPlatform(null); setSectionIndex(0); setFitKey(k => k + 1);
+    } catch (e) { setMessage(e.message); }
+  }
+  async function importCadPoints(cadPoints, text) {
+    setCadImport(null);
+    try {
+      setMessage('Triangulando os pontos do desenho…');
+      const mesh = await run('surface', {points: cadPoints, breaklines: [], boundary: [], maxEdge: 0});
+      commit({points: cadPoints, mesh, breaklines: [], boundary: [], maxEdge: 0, ...emptyDesign}, text);
+      setErrors([]); setGroup(''); setEdgeDraft('0'); setReferenceDraft(''); setSelectedPlatform(null); setSectionIndex(0); setFitKey(k => k + 1);
     } catch (e) { setMessage(e.message); }
   }
   function undo() {
@@ -267,7 +283,7 @@ export default function AppV4() {
   }
   useEffect(() => {
     const handler = e => {
-      if (e.target.closest('input,select,textarea') || e.target.isContentEditable) return;
+      if (e.target.closest('input,select,textarea,.modal') || e.target.isContentEditable) return;
       const k = e.key.toLowerCase();
       if (k === 'f1') { e.preventDefault(); setHelp(v => !v); return; }
       if (k === 'f3') { e.preventDefault(); setSnap(v => !v); setMessage(snap ? 'Atração desligada (F3).' : 'Atração ligada (F3).'); return; }
@@ -324,8 +340,9 @@ export default function AppV4() {
       <fieldset disabled={busy}>
       {sideTab === 'terrain' && <>
         <section><h2>01 · Nuvem de Pontos</h2>
-          <button className="upload full" onClick={() => pointFile.current.click()}>＋ Importar TXT / CSV / XYZ</button>
-          <input hidden type="file" ref={pointFile} accept=".txt,.csv,.xyz" onChange={importFile}/>
+          <button className="upload full" onClick={() => pointFile.current.click()}>＋ Importar pontos ou desenho</button>
+          <p className="hint">TXT · CSV · XYZ · DWG · DXF</p>
+          <input hidden type="file" ref={pointFile} accept=".txt,.csv,.xyz,.dwg,.dxf" onChange={importFile}/>
           <label>Formato das colunas<select value={schema} onChange={e => setSchema(e.target.value)}><option value="auto">Automático / cabeçalho</option><option value="custom">Personalizado P/E/N/Z/D</option><option value="xyz">X Y Z descrição</option><option value="idxyz">P E N Z descrição</option></select></label>
           {schema === 'custom' && <label>Ordem das colunas<input type="text" value={mappingText} onChange={e => setMappingText(e.target.value)}/></label>}
           <div className="dataset"><i/> Levantamento ativo <b>{points.length}</b></div>
@@ -448,6 +465,7 @@ export default function AppV4() {
       {showTable && <div className="table-wrap"><table><thead><tr>{['PONTO', 'ESTE (X)', 'NORTE (Y)', 'COTA (Z)', 'DESCRIÇÃO'].map(t => <th key={t}>{t}</th>)}</tr></thead><tbody>{visibleIndices.slice(0, 100).map(i => points[i]).map(p => <tr key={p.id}><td>{p.id}</td><td>{p.x.toFixed(3)}</td><td>{p.y.toFixed(3)}</td><td>{p.z.toFixed(style.precision)}</td><td>{p.description || '—'}</td></tr>)}</tbody></table></div>}</>}
       {errors.length > 0 && <details className="errors"><summary>{errors.length} linhas rejeitadas</summary>{errors.map((e, i) => <p key={i}>Linha {e.line}: {e.message}</p>)}</details>}
     </main></div>
+    {cadImport && <CadImportDialog data={cadImport} onCancel={() => { setCadImport(null); setMessage('Importação do desenho cancelada.'); }} onConfirm={importCadPoints}/>}
     <footer role="status"><i className="live"/>{message}<span className="footer-right">{selPlat ? `${selPlat.name} · ` : ''}TIN 2.5D · Coordenadas originais · v{VERSION}</span></footer>
   </div>;
 }

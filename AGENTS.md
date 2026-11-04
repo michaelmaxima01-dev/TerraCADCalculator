@@ -7,12 +7,14 @@ Versão atual: **4.0** (`package.json` 0.4.0). Guias do usuário: `LEIA-ME-V4.md
 ## Comandos
 - `npm ci` — instalar (Node.js 22.12+)
 - `npm run dev` — Vite em 127.0.0.1
-- `npm test` — `node --test` (44 testes do núcleo; devem continuar passando)
+- `npm test` — `node --test` (56 testes do núcleo; devem continuar passando)
 - `npm run build` — gera `dist/`
 - `node serve.mjs` — servidor de uso (somente módulos nativos), serve `dist/` em http://127.0.0.1:4173
 
 ## Stack
-React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/style.css`) · Three.js 0.180 (`three/addons/controls/OrbitControls.js`) · `cdt2d` · Web Worker para importação/triangulação. JavaScript (sem TypeScript).
+React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/style.css`) · Three.js 0.180 (`three/addons/controls/OrbitControls.js`) · `cdt2d` · `@mlightcad/libredwg-web` 0.8.3 (LibreDWG em WebAssembly, leitura de DWG) · Web Worker em módulo ES (`worker.format: 'es'`) para importação/triangulação. JavaScript (sem TypeScript). JSX clássico: todo componente precisa de `import React`.
+
+**Licença: GPL-3.0-or-later** (decisão do usuário em 04/11/2026 para ler DWG com a LibreDWG). Ao publicar, o código-fonte deve ficar disponível aos usuários.
 
 ## Mapa do código
 | Caminho | Papel |
@@ -23,6 +25,10 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 | `src/components/SectionViewer.jsx` | Seções transversais, áreas, média das áreas extremas |
 | `src/components/PointTools.jsx` | Grupos e edição de pontos |
 | `src/core/parser.js` | Importação P/E/N/Z/D, `;` com vírgula decimal, mapeamento |
+| `src/core/dxf.js` | Leitor DXF ASCII próprio (POINT, LINE, LWPOLYLINE, POLYLINE/VERTEX, 3DFACE, INSERT+ATTRIB, BLOCK) → modelo CAD normalizado |
+| `src/core/cad.js` | `normalizeLibreDwg`, `extractSources` (expande blocos com transformação; bloco com atributo de cota/nº vira ponto; blocos nunca inseridos viram fontes), `buildCadPoints` (espaçamento, duplicados, IDs), `separateRegions`, `suggestSpacing` |
+| `src/core/cadReader.js` | Só no Worker: detecta DWG/DXF, carrega a LibreDWG sob demanda (`.wasm` ~11 MB), mensagens de erro |
+| `src/components/CadImportDialog.jsx` | Janela de escolha das fontes do desenho, espaçamento e avisos antes de importar |
 | `src/core/tin.js` | `triangulate`, `constraintsFor`, `editEdge` (swap/delete), `edgesOf` |
 | `src/core/surface.js` | `buildSurface` (CDT + contorno + maxEdge), `validateProject` (v1–v4) |
 | `src/core/contours.js` | Curvas de nível (marching triangles) |
@@ -34,8 +40,8 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 | `src/core/sections.js` | Estacas, seções, média das áreas extremas |
 | `src/core/snap.js` | Índice de atração: nó/vértice > ponto médio > mais próximo |
 | `src/core/exporters.js` | DXF R12 (camadas `TC_*`), LandXML 1.2 (multi-superfície), CSV |
-| `src/core/geometry.worker.js` | Worker: import, superfície, validação de projeto |
-| `tests/*.test.js` | `core`, `surface`, `v3`, `v4` |
+| `src/core/geometry.worker.js` | Worker: import, superfície, validação de projeto, leitura CAD (`cad`) |
+| `tests/*.test.js` | `core`, `surface`, `v3`, `v4`, `cad` (fixture `tests/fixtures/blocos.dxf`) |
 | `AppV2/V3`, `ViewportV2/V3`, `ProfileChart`, `main.jsx`, `Viewport.jsx` | Versões anteriores preservadas como referência, **fora da entrada** — não editar sem pedido |
 
 ## Modelo de dados (projeto JSON v4)
@@ -61,9 +67,10 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 1. `npm test` sem falhas.
 2. `npm run build` sem erros.
 3. Testar no navegador o fluxo afetado (importar `exemplos/levantamento-concavo.csv`, desenhar, salvar e reabrir o JSON) sem erros no console.
+4. Não versionar desenhos de clientes (DWG/DXF reais); usar fixtures sintéticas.
 
 ## Backlog sugerido
-Plataformas com rampa e bermas · corredor (seção-tipo ao longo do eixo) · curvas horizontais no eixo · volume superfície × superfície · arrastar vértices de plataforma · importação DXF · triangulação mais rápida (≈3 s para 10 mil pontos) · reduzir estado do `AppV4` (reducer/store) · `constraintsFor` O(n²).
+Plataformas com rampa e bermas · corredor (seção-tipo ao longo do eixo) · curvas horizontais no eixo · volume superfície × superfície (ex.: levantamentos jan × mar/2022 da Mina Cutia) · arrastar vértices de plataforma · curvas importadas como linhas obrigatórias · planimetria do DWG como fundo · textos de cota (TEXT) como pontos · triangulação mais rápida (≈3 s para 10 mil pontos) · reduzir estado do `AppV4` (reducer/store) · `constraintsFor` O(n²).
 
 ## Pendências com o usuário
 Confirmar o significado de "modelo aranha" e de "curso que mostre as milhas" (provavelmente cursor em mira).
