@@ -1,0 +1,144 @@
+{
+  "version": 2,
+  "points": [
+    {
+      "id": "A",
+      "x": 0,
+      "y": 0,
+      "z": 100,
+      "description": "PERIMETRO"
+    },
+    {
+      "id": "B",
+      "x": 40,
+      "y": 0,
+      "z": 104,
+      "description": "PERIMETRO"
+    },
+    {
+      "id": "C",
+      "x": 40,
+      "y": 10,
+      "z": 105,
+      "description": "PERIMETRO"
+    },
+    {
+      "id": "D",
+      "x": 10,
+      "y": 10,
+      "z": 102,
+      "description": "PERIMETRO"
+    },
+    {
+      "id": "E",
+      "x": 10,
+      "y": 40,
+      "z": 103,
+      "description": "PERIMETRO"
+    },
+    {
+      "id": "F",
+      "x": 0,
+      "y": 40,
+      "z": 101,
+      "description": "PERIMETRO"
+    },
+    {
+      "id": "G",
+      "x": 5,
+      "y": 5,
+      "z": 101,
+      "description": "TN"
+    },
+    {
+      "id": "H",
+      "x": 5,
+      "y": 30,
+      "z": 102,
+      "description": "TN"
+    },
+    {
+      "id": "I",
+      "x": 30,
+      "y": 5,
+      "z": 104,
+      "description": "TN"
+    }
+  ],
+  "triangles": [
+    [
+      0,
+      1,
+      8
+    ],
+    [
+      0,
+      8,
+      6
+    ],
+    [
+      0,
+      7,
+      5
+    ],
+    [
+      0,
+      6,
+      7
+    ],
+    [
+      1,
+      2,
+      8
+    ],
+    [
+      2,
+      3,
+      8
+    ],
+    [
+      3,
+      7,
+      6
+    ],
+    [
+      3,
+      4,
+      7
+    ],
+    [
+      3,
+      6,
+      8
+    ],
+    [
+      4,
+      5,
+      7
+    ]
+  ],
+  "breaklines": [],
+  "boundary": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "maxEdge": 0,
+  "labelStyle": {
+    "visible": true,
+    "id": true,
+    "elevation": false,
+    "description": false,
+    "color": "#d7eade",
+    "size": 12,
+    "precision": 3
+  },
+  "groupColors": {
+    "BE": "#80c6ff",
+    "BD": "#ffd27b",
+    "TN": "#d1efdf"
+  }
+}
