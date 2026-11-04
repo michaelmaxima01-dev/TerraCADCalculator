@@ -26,7 +26,7 @@ test('slopeRise: talude com bancadas sobe h em h·H e anda w na berma', () => {
 
 test('validateBenches e compatibilidade: plataforma v4 ganha bermas desligadas', () => {
   const p = validatePlatform({polygon: square(), elevation: 100, cutSlope: 1, fillSlope: 1.5});
-  assert.deepEqual(p.benches, {enabled: false, height: 10, width: 5, apply: 'cut'});
+  assert.deepEqual(p.benches, {enabled: false, height: 10, width: 5, apply: 'cut', startAfter: 0, count: null});
   assert.throws(() => validateBenches({height: 0}), /Altura/);
   assert.throws(() => validateBenches({width: -1}), /Largura/);
   assert.throws(() => validateBenches({apply: 'x'}), /corte, aterro/);

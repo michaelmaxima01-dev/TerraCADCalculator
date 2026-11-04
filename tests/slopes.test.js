@@ -25,3 +25,31 @@ test('gridVolumes: projeto plano 1 m abaixo do terreno em 10×10 dá 100 m³ de 
   const v = gridVolumes(() => 100, () => 101, {minX: 0, minY: 0, maxX: 10, maxY: 10}, {maxCells: 10000});
   close(v.cut, 100, 0.5); assert.equal(v.fill, 0); close(v.footprint, 100, 0.5);
 });
+
+// ---------- Task 7: bancadas a partir de X m e por quantidade ----------
+import {slopeRise, slopeBreaks, slopeReach, validateBenches, resolveBench} from '../src/core/slopes.js';
+
+test('startAfter: talude contínuo até 4 m, berma, depois bancadas de 5 m', () => {
+  const b = {height: 5, width: 2, startAfter: 4};
+  assert.deepEqual(slopeBreaks(1, b, 20).map(q => [q.d, q.kind]), [[4, 'crest'], [6, 'toe'], [11, 'crest'], [13, 'toe'], [18, 'crest']]);
+  close(slopeRise(4, 1, b), 4, 1e-12); close(slopeRise(5, 1, b), 4, 1e-12); close(slopeRise(6, 1, b), 4, 1e-12);
+  close(slopeRise(11, 1, b), 9, 1e-12); close(slopeRise(12, 1, b), 9, 1e-12); close(slopeRise(14, 1, b), 10, 1e-12);
+  close(slopeRise(3, 1, b), 3, 1e-12);
+  // alcance cobre a primeira berma
+  assert.ok(slopeReach(9, 1, b) >= 11);
+});
+
+test('resolveBench: N bermas numa profundidade dão bancadas iguais; startAfter é ignorado', () => {
+  const r = resolveBench({enabled: true, height: 10, width: 1, apply: 'cut', startAfter: 3, count: 2}, 8);
+  close(r.height, 8 / 3, 1e-12); assert.equal(r.startAfter, 0);
+  assert.deepEqual(resolveBench({enabled: true, height: 4, width: 1, count: null}, 8).height, 4);
+});
+
+test('validateBenches: novos campos e limites', () => {
+  const v = validateBenches({enabled: true, height: 5, width: 2});
+  assert.equal(v.startAfter, 0); assert.equal(v.count, null);
+  assert.equal(validateBenches({startAfter: 4, count: 3}).count, 3);
+  assert.throws(() => validateBenches({count: 0}), /entre 1 e 50/);
+  assert.throws(() => validateBenches({count: 2.5}), /entre 1 e 50/);
+  assert.throws(() => validateBenches({startAfter: -1}), /a partir de/i);
+});

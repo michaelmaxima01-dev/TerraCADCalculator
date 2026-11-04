@@ -9,37 +9,66 @@ const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
 export const BENCH_DEFAULT = Object.freeze({enabled: false, height: 10, width: 5, apply: 'cut'});
 const BENCH_APPLY = ['cut', 'fill', 'both'];
 
-/** Bancadas (bermas) do talude: altura vertical entre bermas e largura horizontal da berma. */
+/**
+ * Bancadas (bermas) do talude: altura vertical entre bermas, largura horizontal da berma, onde aplicar,
+ * altura a partir da qual começam (startAfter: talude contínuo até ela, 1ª berma nela) e, opcionalmente,
+ * a quantidade de bermas numa profundidade (count; a altura vem de resolveBench).
+ */
 export function validateBenches(b) {
-  if (b === undefined || b === null) return {...BENCH_DEFAULT};
+  if (b === undefined || b === null) return {...BENCH_DEFAULT, startAfter: 0, count: null};
   if (typeof b !== 'object') throw Error('Configuração de bermas inválida.');
   const height = Number(b.height ?? BENCH_DEFAULT.height), width = Number(b.width ?? BENCH_DEFAULT.width), apply = b.apply ?? BENCH_DEFAULT.apply;
+  const startAfter = Number(b.startAfter ?? 0), count = b.count === undefined || b.count === null || b.count === '' ? null : Number(b.count);
   if (!(height > 0 && height <= 1000)) throw Error('Altura da bancada deve ser maior que zero.');
   if (!(width >= 0 && width <= 1000)) throw Error('Largura da berma não pode ser negativa.');
   if (!BENCH_APPLY.includes(apply)) throw Error('Bermas: escolha corte, aterro ou ambos.');
-  return {enabled: !!b.enabled, height, width, apply};
+  if (!(startAfter >= 0 && startAfter <= 1000)) throw Error('A altura "a partir de" não pode ser negativa.');
+  if (count !== null && !(Number.isInteger(count) && count >= 1 && count <= 50)) throw Error('Quantidade de bermas deve ser um número inteiro entre 1 e 50.');
+  return {enabled: !!b.enabled, height, width, apply, startAfter, count};
 }
+
+/** Bancada efetiva: com `count` e uma profundidade, altura = profundidade / (count + 1) e sem `startAfter`. */
+export function resolveBench(bench, depth) {
+  if (!bench || !bench.count || !(depth > 0)) return bench;
+  return {...bench, height: depth / (bench.count + 1), startAfter: 0};
+}
+
+// parte regular das bancadas: face de altura h (h·H em planta) seguida de berma w, repetindo
+const regularRise = (d, H, b) => { const run = b.height * H, period = run + b.width, k = Math.floor(d / period), r = d - k * period; return k * b.height + Math.min(r, run) / H; };
+const startOf = (H, b) => b.startAfter > 0 ? {rise: b.startAfter, d: b.startAfter * H + b.width} : {rise: 0, d: 0};
 
 /** Subida vertical do talude a uma distância horizontal d (com ou sem bancadas). */
 export function slopeRise(d, H, bench = null) {
   if (!(d > 0)) return 0;
   if (!bench) return d / H;
-  const run = bench.height * H, period = run + bench.width;
-  const k = Math.floor(d / period), r = d - k * period;
-  return k * bench.height + Math.min(r, run) / H;
+  const s0 = startOf(H, bench);
+  if (bench.startAfter > 0) {
+    if (d <= bench.startAfter * H) return d / H;
+    if (d <= s0.d) return bench.startAfter;
+  }
+  return s0.rise + regularRise(d - s0.d, H, bench);
 }
 /** Distância horizontal máxima para vencer um desnível (limite superior, para recortes de busca). */
 export function slopeReach(rise, H, bench = null) {
   if (!(rise > 0)) return 0;
-  return rise * H + (bench ? Math.ceil(rise / bench.height) * bench.width : 0);
+  if (!bench) return rise * H;
+  const s0 = startOf(H, bench);
+  if (bench.startAfter > 0 && rise <= bench.startAfter) return rise * H;
+  const rest = rise - s0.rise;
+  return s0.d + rest * H + Math.ceil(rest / bench.height) * bench.width;
 }
 /** Distâncias (em planta) das quebras do talude com bancadas: crista da berma e pé da bancada seguinte. */
 export function slopeBreaks(H, bench, maxD) {
   if (!bench || !(maxD > 0)) return [];
-  const run = bench.height * H, period = run + bench.width, out = [];
-  for (let k = 0; k * period < maxD && out.length < 2000; k++) {
-    if (k * period + run < maxD) out.push({d: k * period + run, kind: 'crest', k});
-    if (bench.width > 0 && (k + 1) * period < maxD) out.push({d: (k + 1) * period, kind: 'toe', k});
+  const out = [], s0 = startOf(H, bench);
+  if (bench.startAfter > 0) {
+    if (bench.startAfter * H < maxD) out.push({d: bench.startAfter * H, kind: 'crest', k: -1});
+    if (bench.width > 0 && s0.d < maxD) out.push({d: s0.d, kind: 'toe', k: -1});
+  }
+  const run = bench.height * H, period = run + bench.width;
+  for (let k = 0; s0.d + k * period < maxD && out.length < 2000; k++) {
+    if (s0.d + k * period + run < maxD) out.push({d: s0.d + k * period + run, kind: 'crest', k});
+    if (bench.width > 0 && s0.d + (k + 1) * period < maxD) out.push({d: s0.d + (k + 1) * period, kind: 'toe', k});
   }
   return out;
 }
