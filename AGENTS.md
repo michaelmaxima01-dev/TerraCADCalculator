@@ -19,7 +19,8 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 ## Mapa do código
 | Caminho | Papel |
 |---|---|
-| `index.html` → `src/v4.jsx` → `src/AppV4.jsx` | App atual: estado do documento, histórico (20 passos), ferramentas, atalhos, abas laterais (Terreno/Projeto/Exibição/Exportar) e de vista (2D/Duas vistas/3D/Perfil/Seções), JSON v4 |
+| `index.html` → `src/v4.jsx` → `src/AppV4.jsx` | App atual: estado do documento, histórico (20 passos), ferramentas, atalhos, JSON v4. Layout de estação CAD (classe `tc5`): barra superior com vistas (2D/2D+3D/3D/Perfil/Seções), trilho de ferramentas à esquerda, painel de propriedades recolhível à direita (abas Terreno/Projeto/Exibição/Exportar, seções `Panel` = `<details>`), barra de status. Em ≤ 900 px: ferramentas embaixo e painel como folha |
+| `src/components/Icons.jsx` | Ícones SVG de traço (`<Icon name=…>`), sem dependência externa |
 | `src/components/ViewportV4.jsx` | Renderer 2D (ortográfica) e 3D: zoom suave ao cursor (roda própria; OrbitControls com `enableZoom=false` + damping), atração com marcadores, linha elástica no canvas, plataformas/taludes, seções, terreno recortado no 3D |
 | `src/components/ProfileEditor.jsx` | Perfil: PVIs inserir/arrastar/remover, curvas verticais, corte/aterro, tabela, zoom/pan |
 | `src/components/SectionViewer.jsx` | Seções transversais, áreas, média das áreas extremas |
@@ -60,7 +61,7 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 - Toda função nova de núcleo ganha teste, de preferência com **resultado analítico conhecido** (ex.: plano inclinado, plataforma quadrada).
 - Mensagens ao usuário em português, curtas e específicas (dizer o que fazer).
 - Não fazer laço de renderização contínuo: renderizar sob demanda (`invalidate`).
-- Preservar o estilo visual escuro existente; tokens de cor em `src/style.css`.
+- Preservar o estilo visual escuro; usar os tokens `--bg`, `--surface*`, `--line*`, `--text*`, `--accent*`, `--cut`, `--fill` do bloco “estação de trabalho” no fim de `src/style.css` (as regras antigas V2–V4 continuam por baixo; novas regras vão escopadas em `.tc5`).
 - Ao mudar o formato do projeto, subir `version` e manter a leitura das anteriores em `validateProject`.
 
 ## Verificação antes de entregar

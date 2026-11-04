@@ -4,6 +4,7 @@ import PointTools from './components/PointTools';
 import ProfileEditor from './components/ProfileEditor';
 import SectionViewer from './components/SectionViewer';
 import CadImportDialog from './components/CadImportDialog';
+import Icon from './components/Icons';
 import {pointGroups, upsertPoint} from './core/points';
 import {editEdge} from './core/tin';
 import {buildSurface} from './core/surface';
@@ -60,6 +61,15 @@ function downloadText(name, text, type) {
 }
 const newId = () => 'pf-' + Math.random().toString(36).slice(2, 8);
 
+/** Seção recolhível do painel de propriedades. */
+function Panel({title, children, open = true}) {
+  return <details className="panel" open={open}><summary>{title}</summary><div className="panel-body">{children}</div></details>;
+}
+const TOOLS = [['orbit', 'orbit', 'N'], ['breakline', 'breakline', 'L'], ['boundary', 'boundary', 'B'], ['profile', 'profile', 'P'], ['platform', 'platform', 'G'], ['swap', 'swap', 'S'], ['delete', 'trim', 'D']];
+const VIEWS = [['2D', 'Planta', '2'], ['split', '2D + 3D', 'V'], ['3D', '3D', '3'], ['profile', 'Perfil', '4'], ['sections', 'Seções', '5']];
+const SIDE_TABS = [['terrain', 'Terreno', 'terrain'], ['design', 'Projeto', 'design'], ['display', 'Exibição', 'display'], ['export', 'Exportar', 'export']];
+const Compass = () => <svg className="compass" width="34" height="34" viewBox="0 0 34 34" aria-label="Norte para cima" role="img"><circle cx="17" cy="17" r="15.5"/><path className="needle" d="M17 5l4 12h-8z"/><path d="M17 29l-4-12h8z"/><text x="17" y="4.6">N</text></svg>;
+
 function NumberField({label, value, onCommit, step = 'any', min, digits = 3, ...rest}) {
   return <label>{label}<input type="number" step={step} min={min} defaultValue={Number.isFinite(value) ? Number(value.toFixed(digits)) : ''} key={value}
     onBlur={e => { const v = Number(e.target.value); if (e.target.value !== '' && Number.isFinite(v) && v !== value) onCommit(v); }} onKeyDown={e => e.key === 'Enter' && e.target.blur()} {...rest}/></label>;
@@ -77,10 +87,12 @@ export default function AppV4() {
   const [schema, setSchema] = useState('auto'), [mappingText, setMappingText] = useState('P,E,N,Z,D'), [edgeDraft, setEdgeDraft] = useState('0');
   const [snap, setSnap] = useState(true), [snapModes, setSnapModes] = useState({node: true, vertex: true, midpoint: true, nearest: false}), [snapAperture, setSnapAperture] = useState(18);
   const [zoomSensitivity, setZoomSensitivity] = useState(1), [crosshair, setCrosshair] = useState(true), [fitKey, setFitKey] = useState(0), [densify, setDensify] = useState(true);
-  const [showTable, setShowTable] = useState(false), [showProfileDock, setShowProfileDock] = useState(true), [help, setHelp] = useState(false), [revision, setRevision] = useState(0), [cadImport, setCadImport] = useState(null);
+  const [showTable, setShowTable] = useState(false), [showProfileDock, setShowProfileDock] = useState(true), [help, setHelp] = useState(false), [revision, setRevision] = useState(0), [cadImport, setCadImport] = useState(null), [inspectorOpen, setInspectorOpen] = useState(() => typeof window === 'undefined' || window.innerWidth > 900);
   const [contourStyle, setContourStyle] = useState(defaultContours), [contourDraft, setContourDraft] = useState({interval: '1', majorEvery: '5'});
   const [referenceDraft, setReferenceDraft] = useState(''), [dxfOptions, setDxfOptions] = useState({tin: true, points: true, labels: true, contours: true, design: true, grade: true, sections: false});
   const [selectedPlatform, setSelectedPlatform] = useState(null), [sectionSettings, setSectionSettings] = useState({interval: 20, halfWidth: 30}), [sectionIndex, setSectionIndex] = useState(0), [equalScale, setEqualScale] = useState(false);
+  const [viewportH, setViewportH] = useState(() => typeof window === 'undefined' ? 900 : window.innerHeight);
+  useEffect(() => { const r = () => setViewportH(window.innerHeight); window.addEventListener('resize', r); return () => window.removeEventListener('resize', r); }, []);
   const {run, busy} = useGeometry(); const pointFile = useRef(), projectFile = useRef();
   const {points, mesh, breaklines, boundary, maxEdge, alignment, grade, platforms} = doc;
 
@@ -317,37 +329,54 @@ export default function AppV4() {
     onPick, onEdge, onPlanClick, onNotice: setMessage, contours, contourStyle, alignment, profileSamples: profile?.samples, referenceZ, elevationAt, designAt, designs: validDesigns, selectedPlatform,
     sectionLines: layers.sections && (layout === 'sections' || profile) ? sectionLines : null, currentStation: layout === 'sections' ? currentStation : null, gradeLine3D};
   const panel = mode => <div key={mode} className={`viewport-panel ${mode === '2D' ? 'plan-panel' : 'model-panel'}`} data-testid={`panel-${mode}`}>
-    <div className="panel-heading"><span><i className="live"/> {mode === '2D' ? 'PLANTA · EDIÇÃO' : 'MODELO 3D · INSPEÇÃO'}</span><small>{mode === '2D' ? (snap ? 'Atração ligada (F3)' : 'Atração desligada (F3)') : 'Terreno + projeto'}</small></div>
-    <Viewport {...common} mode={mode}/><div className="panel-axis">N ↑<br/>E →</div>
+    <div className="panel-heading"><span>{mode === '2D' ? 'Planta' : 'Modelo 3D'}</span><small>{mode === '2D' ? (snap ? 'Atração F3 ligada' : 'Atração F3 desligada') : 'Terreno + projeto'}</small></div>
+    <Viewport {...common} mode={mode}/>{mode === '2D' && <Compass/>}
   </div>;
   const picking = ['boundary', 'breakline', 'profile', 'platform'].includes(tool), pickCount = tool === 'boundary' ? selected.length : pickDraft.length, minPick = ['boundary', 'platform'].includes(tool) ? 3 : 2;
   const editor = profile && <ProfileEditor profile={profile} grade={grade} onGradeChange={(g, text) => commit({...doc, grade: g}, text)} designProfile={designProfile} referenceZ={referenceZ} precision={style.precision}
     sectionStations={stationList} currentStation={layout === 'sections' ? currentStation : null} onStation={s => { const i = stationList.reduce((b, v, k) => Math.abs(v - s) < Math.abs(stationList[b] - s) ? k : b, 0); setSectionIndex(i); }}
     onRemove={() => commit({...doc, alignment: [], grade: []}, 'Eixo e greide removidos.')} onNotice={setMessage} zoomSensitivity={zoomSensitivity}
-    height={layout === 'profile' ? 430 : 210} showTable={layout === 'profile'}/>;
+    height={layout === 'profile' ? Math.max(360, viewportH - (grade.length ? 360 : 190)) : 210} showTable={layout === 'profile'}/>;
   const selPlat = platforms.find(p => p.id === selectedPlatform);
 
-  return <div className="app v2 v3 v4">
-    <header>
-      <a className="brand" href="#">◬ <b>TERRA<span>CAD</span></b><em>{VERSION}</em></a>
-      <div className="project">Estúdio de superfícies <span>/ Topografia & terraplenagem</span></div>
-      <button disabled={busy} onClick={() => projectFile.current.click()}>Abrir projeto</button>
-      <input hidden type="file" accept=".json" ref={projectFile} onChange={openProject}/>
-      <button disabled={busy} className="primary" onClick={saveProject}>↓ Salvar projeto</button>
+  const viewDisabled = id => (id === 'profile' || id === 'sections') && !profile;
+  return <div className={`app v2 v3 v4 tc5 ${inspectorOpen ? '' : 'inspector-closed'}`}>
+    <header className="topbar">
+      <a className="brand" href="#" aria-label={`Terra CAD ${VERSION}`}><svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9.5 17h-19z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/><path d="M6.5 15.5l3.5-3 2.5 2 2.5-3 3 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></svg><b>TERRA<span>CAD</span></b><em>{VERSION}</em></a>
+      <div className="project" title={`${points.length} pontos · ${mesh.triangles.length} triângulos`}><span>Estúdio de superfícies</span><small>{points.length.toLocaleString('pt-BR')} pontos · {mesh.triangles.length.toLocaleString('pt-BR')} triângulos</small></div>
+      <nav className="view-switch" role="tablist" aria-label="Vistas">{VIEWS.map(([id, label, key]) => <button role="tab" aria-selected={layout === id} key={id} className={layout === id ? 'active' : ''}
+        title={viewDisabled(id) ? `${label} (${key}) · trace um eixo (P) para habilitar` : `${label} (${key})`} disabled={viewDisabled(id)} onClick={() => { setLayout(id); if (id !== '2D' && id !== 'split') setTool('orbit'); }}>{label}<kbd>{key}</kbd></button>)}</nav>
+      <div className="top-actions">
+        <button className="icon-btn" disabled={busy || !history.length} onClick={undo} title="Desfazer (Ctrl+Z)" aria-label="Desfazer"><Icon name="undo"/></button>
+        <button className="icon-btn" disabled={busy} onClick={() => projectFile.current.click()} title="Abrir projeto (Ctrl+O)" aria-label="Abrir projeto"><Icon name="open"/><span>Abrir</span></button>
+        <input hidden type="file" accept=".json" ref={projectFile} onChange={openProject}/>
+        <button disabled={busy} className="primary icon-btn" onClick={saveProject} title="Salvar projeto (Ctrl+S)"><Icon name="save"/><span>Salvar</span></button>
+        <button className={`icon-btn ${inspectorOpen ? 'active' : ''}`} onClick={() => setInspectorOpen(v => !v)} title={inspectorOpen ? 'Recolher painel de propriedades' : 'Abrir painel de propriedades'} aria-label="Painel de propriedades" aria-expanded={inspectorOpen}><Icon name="panel"/></button>
+      </div>
     </header>
-    <div className="workspace"><aside>
-      <div className="side-tabs" role="tablist">{[['terrain', 'Terreno'], ['design', 'Projeto'], ['display', 'Exibição'], ['export', 'Exportar']].map(([id, label]) => <button key={id} role="tab" aria-selected={sideTab === id} className={sideTab === id ? 'active' : ''} onClick={() => setSideTab(id)}>{label}{id === 'design' && (platforms.length + (alignment.length ? 1 : 0)) > 0 && <i className="badge">{platforms.length + (alignment.length ? 1 : 0)}</i>}</button>)}</div>
+    <div className="workspace">
+      <nav className="toolrail" aria-label="Ferramentas">
+        {TOOLS.map(([id, icon, key], i) => <React.Fragment key={id}>{(i === 1 || i === 5) && <hr/>}<button disabled={busy} className={tool === id ? 'active' : ''} aria-pressed={tool === id} title={`${TOOL_NAMES[id]} (${key})`} aria-label={TOOL_NAMES[id]} onClick={() => chooseTool(id)}><Icon name={icon} size={20}/><kbd>{key}</kbd></button></React.Fragment>)}
+        <hr/>
+        <button onClick={() => setFitKey(k => k + 1)} title="Enquadrar (Z)" aria-label="Enquadrar"><Icon name="fit" size={20}/><kbd>Z</kbd></button>
+        <button className={snap ? 'on' : ''} aria-pressed={snap} onClick={() => { setSnap(v => !v); setMessage(snap ? 'Atração desligada (F3).' : 'Atração ligada (F3).'); }} title={`Atração ${snap ? 'ligada' : 'desligada'} (F3)`} aria-label="Atração"><Icon name="snap" size={20}/><kbd>F3</kbd></button>
+        <span className="rail-spacer"/>
+        <button className={help ? 'active' : ''} onClick={() => setHelp(v => !v)} title="Atalhos (F1)" aria-label="Atalhos"><Icon name="help" size={20}/></button>
+      </nav>
+      <aside className="inspector" aria-label="Propriedades">
+      <div className="side-tabs" role="tablist">{SIDE_TABS.map(([id, label, icon]) => <button key={id} role="tab" aria-selected={sideTab === id} className={sideTab === id ? 'active' : ''} onClick={() => setSideTab(id)}><Icon name={icon} size={16}/>{label}{id === 'design' && (platforms.length + (alignment.length ? 1 : 0)) > 0 && <i className="badge">{platforms.length + (alignment.length ? 1 : 0)}</i>}</button>)}
+        <button className="inspector-close" onClick={() => setInspectorOpen(false)} aria-label="Fechar painel"><Icon name="close" size={16}/></button></div>
       <fieldset disabled={busy}>
       {sideTab === 'terrain' && <>
-        <section><h2>01 · Nuvem de Pontos</h2>
+        <Panel title="01 · Pontos e desenhos">
           <button className="upload full" onClick={() => pointFile.current.click()}>＋ Importar pontos ou desenho</button>
           <p className="hint">TXT · CSV · XYZ · DWG · DXF</p>
           <input hidden type="file" ref={pointFile} accept=".txt,.csv,.xyz,.dwg,.dxf" onChange={importFile}/>
           <label>Formato das colunas<select value={schema} onChange={e => setSchema(e.target.value)}><option value="auto">Automático / cabeçalho</option><option value="custom">Personalizado P/E/N/Z/D</option><option value="xyz">X Y Z descrição</option><option value="idxyz">P E N Z descrição</option></select></label>
           {schema === 'custom' && <label>Ordem das colunas<input type="text" value={mappingText} onChange={e => setMappingText(e.target.value)}/></label>}
           <div className="dataset"><i/> Levantamento ativo <b>{points.length}</b></div>
-        </section>
-        <section><h2>02 · Malha e linhas obrigatórias</h2>
+        </Panel>
+        <Panel title="02 · Malha e restrições">
           <button className="full" onClick={() => chooseTool('breakline')}>⌁ Linha obrigatória (L)</button>
           <label className="check"><input type="checkbox" checked={densify} onChange={e => setDensify(e.target.checked)}/>Assentar nos cruzamentos da TIN (concordância)</label>
           <p className="hint">Clique nós existentes ou pontos livres: cada vértice recebe a cota da superfície atual e a malha é refeita respeitando a linha.</p>
@@ -359,8 +388,8 @@ export default function AppV4() {
           <label>Comprimento máximo da aresta (XY)<input type="number" min="0" step="any" value={edgeDraft} onChange={e => setEdgeDraft(e.target.value)}/></label>
           <button className="full" onClick={() => recompute({maxEdge: Number(edgeDraft)}, 'Limite de aresta aplicado.')}>Aplicar limite e recalcular</button>
           <div className="metric"><span>Triângulos</span><b>{mesh.triangles.length}</b></div>
-        </section>
-        <section><h2>03 · Volumes contra plano</h2>
+        </Panel>
+        <Panel title="03 · Volumes contra plano">
           <div className="metric"><span>Área plana</span><b>{fmt(stats.area2D)} m²</b></div>
           <div className="metric"><span>Área superficial</span><b>{fmt(stats.area3D)} m²</b></div>
           <div className="metric"><span>Cota mín / máx</span><b>{fmt(stats.minZ, style.precision)} / {fmt(stats.maxZ, style.precision)}</b></div>
@@ -368,19 +397,19 @@ export default function AppV4() {
           <div className="two"><button disabled={!mesh.triangles.length} onClick={() => setReferenceDraft(balanceElevation(points, mesh.triangles).toFixed(3))}>Equilíbrio</button><button disabled={!referenceDraft} onClick={() => setReferenceDraft('')}>Limpar</button></div>
           {volume && <div className="volume-card" data-testid="volume-card"><div><span>Corte</span><b className="cut">{fmt(volume.cut)} m³</b></div><div><span>Aterro</span><b className="fill">{fmt(volume.fill)} m³</b></div><div className="net"><span>Saldo</span><b>{fmt(volume.net)} m³</b></div></div>}
           <label className="check"><input type="checkbox" checked={presentation.referencePlane} onChange={e => setPresentation(p => ({...p, referencePlane: e.target.checked}))}/>Mostrar plano no 3D</label>
-        </section>
+        </Panel>
         <PointTools key={revision} points={points} groups={groups} group={group} setGroup={g => { setGroup(g); setSelected([]); }} onSave={savePoint} onGroupLine={() => { const g = groups.find(g => g.code === group); if (g) recompute({breaklines: [...breaklines, g.indices]}, 'Grupo interligado na ordem do arquivo.'); }}/>
       </>}
       {sideTab === 'design' && <>
-        <section><h2>Projetos · eixo e perfil</h2>
+        <Panel title="Eixo e perfil">
           <div className="object-card">
             <div className="object-head"><b>Eixo 1</b><span>{alignment.length ? `${alignment.length} vértices · ${fmt(profile?.length ?? 0)} m` : 'Não traçado'}</span></div>
             <div className="metric"><span>Greide</span><b>{grade.length ? `${grade.length} PVIs` : 'Sem greide'}</b></div>
             <div className="two"><button onClick={() => chooseTool('profile')}>{alignment.length ? 'Redesenhar (P)' : 'Traçar eixo (P)'}</button><button disabled={!profile} onClick={() => { setLayout('profile'); setTool('orbit'); }}>Abrir perfil (4)</button></div>
             {profile && <div className="two"><button onClick={() => { setLayout('sections'); setTool('orbit'); }}>Abrir seções (5)</button><button onClick={() => commit({...doc, alignment: [], grade: []}, 'Eixo e greide removidos.')}>Remover eixo</button></div>}
           </div>
-        </section>
-        <section><h2>Plataformas e taludes</h2>
+        </Panel>
+        <Panel title="Plataformas e taludes">
           <button className="full primary" onClick={() => chooseTool('platform')}>＋ Desenhar plataforma (G)</button>
           <p className="hint">Polilinha fechada em planta. Taludes partem da borda até encontrar o terreno, com inclinação H:V de corte e de aterro.</p>
           {platforms.length === 0 && <p className="muted">Nenhuma plataforma no projeto.</p>}
@@ -397,76 +426,73 @@ export default function AppV4() {
           </div>; })}
           {validDesigns.length > 0 && <div className="volume-card"><div><span>Corte total</span><b className="cut">{fmt(earthworks.cut, 1)} m³</b></div><div><span>Aterro total</span><b className="fill">{fmt(earthworks.fill, 1)} m³</b></div><div className="net"><span>Saldo total</span><b>{fmt(earthworks.cut - earthworks.fill, 1)} m³</b></div></div>}
           <p className="hint">Volume geométrico (sem empolamento/contração), integrado em grade fina sobre o terreno. Plataformas sobrepostas não são combinadas.</p>
-        </section>
-        <section><h2>Seções transversais</h2>
+        </Panel>
+        <Panel title="Seções transversais">
           <div className="two"><NumberField label="Intervalo (m)" aria-label="Intervalo das seções" value={sectionSettings.interval} min="0.1" digits={2} onCommit={v => v > 0 && setSectionSettings(s => ({...s, interval: v}))}/><NumberField label="Meia largura (m)" aria-label="Meia largura das seções" value={sectionSettings.halfWidth} min="0.1" digits={2} onCommit={v => v > 0 && setSectionSettings(s => ({...s, halfWidth: v}))}/></div>
           <label className="check"><input type="checkbox" checked={layers.sections} onChange={e => setLayers(l => ({...l, sections: e.target.checked}))}/>Mostrar linhas de seção na planta</label>
           <div className="metric"><span>Seções</span><b>{stationList.length || '—'}</b></div>
           <button className="full" disabled={!profile} onClick={() => { setLayout('sections'); setTool('orbit'); }}>Abrir visualizador de seções (5)</button>
-        </section>
+        </Panel>
       </>}
       {sideTab === 'display' && <>
-        <section><h2>Navegação e atração</h2>
+        <Panel title="Navegação e atração">
           <label>Sensibilidade do zoom (roda)<input aria-label="Sensibilidade do zoom" type="range" min="0.4" max="2.5" step="0.1" value={zoomSensitivity} onChange={e => setZoomSensitivity(+e.target.value)}/></label>
           <p className="hint">Zoom suave em direção ao cursor, na planta, no 3D e no perfil.</p>
           <label className="check"><input type="checkbox" checked={snap} onChange={e => setSnap(e.target.checked)}/>Atração ativa (F3)</label>
           <div className="two">{[['node', '□ Nó'], ['vertex', '◇ Vértice'], ['midpoint', '△ Ponto médio'], ['nearest', '⧖ Mais próximo']].map(([k, label]) => <label className="check" key={k}><input type="checkbox" checked={snapModes[k]} onChange={e => setSnapModes(m => ({...m, [k]: e.target.checked}))}/>{label}</label>)}</div>
           <label>Abertura da atração: {snapAperture}px<input aria-label="Abertura da atração" type="range" min="6" max="40" value={snapAperture} onChange={e => setSnapAperture(+e.target.value)}/></label>
           <label className="check"><input type="checkbox" checked={crosshair} onChange={e => setCrosshair(e.target.checked)}/>Mira completa</label>
-        </section>
-        <section><h2>Curvas de nível</h2>
+        </Panel>
+        <Panel title="Curvas de nível">
           <div className="two"><label>Intervalo<input aria-label="Intervalo das curvas" type="number" min="0" step="any" value={contourDraft.interval} onChange={e => applyContourDraft('interval', e.target.value)}/></label><label>Mestra a cada<input aria-label="Curva mestra a cada" type="number" min="1" step="1" value={contourDraft.majorEvery} onChange={e => applyContourDraft('majorEvery', e.target.value)}/></label></div>
           {[['visible2D', 'Exibir na planta'], ['visible3D', 'Exibir no 3D'], ['labels', 'Rótulos nas mestras']].map(([k, label]) => <label className="check" key={k}><input type="checkbox" checked={contourStyle[k]} onChange={e => setContourStyle(s => ({...s, [k]: e.target.checked}))}/>{label}</label>)}
           {contourResult.error ? <p className="field-error" role="alert">{contourResult.error}</p> : contours && <div className="metric"><span>Curvas geradas</span><b>{contours.levels.length} cotas</b></div>}
-        </section>
-        <section><h2>Camadas e estilo</h2>
+        </Panel>
+        <Panel title="Camadas e estilo">
           {[['points', 'Pontos'], ['edges', 'Arestas triangulares'], ['breaklines', 'Linhas obrigatórias'], ['border', 'Borda da superfície'], ['grid', 'Grade de referência']].map(([k, label]) => <label className="check" key={k}><input type="checkbox" checked={layers[k]} onChange={e => setLayers(l => ({...l, [k]: e.target.checked}))}/>{label}</label>)}
           <label>Estilo do modelo<select aria-label="Estilo do modelo" value={presentation.style} onChange={e => setPresentation(p => ({...p, style: e.target.value}))}><option value="concept">Conceitual · cores por elevação</option><option value="hypso">Hipsométrico · faixas de cota</option><option value="solid">Sólido · iluminação suave</option><option value="wire">Aramado · inspecionar triangulação</option></select></label>
           <label className="check"><input type="checkbox" checked={presentation.grid} onChange={e => setPresentation(p => ({...p, grid: e.target.checked}))}/>Grade no 3D</label>
-        </section>
-        <section><h2>Cores dos grupos</h2>{groups.map(g => <label className="group-color" key={g.code}><span>{g.code}</span><input aria-label={`Cor do grupo ${g.code}`} type="color" value={groupColors[g.code] || '#d8eee5'} onChange={e => setGroupColors(c => ({...c, [g.code]: e.target.value}))}/></label>)}</section>
-        <section><h2>Rótulos na planta</h2>
+        </Panel>
+        <Panel title="Cores dos grupos" open={false}>{groups.map(g => <label className="group-color" key={g.code}><span>{g.code}</span><input aria-label={`Cor do grupo ${g.code}`} type="color" value={groupColors[g.code] || '#d8eee5'} onChange={e => setGroupColors(c => ({...c, [g.code]: e.target.value}))}/></label>)}</Panel>
+        <Panel title="Rótulos na planta" open={false}>
           <label>Estilo de Rótulo do Ponto<select value={preset} onChange={e => { const v = e.target.value; setPreset(v); setStyle(s => ({...s, visible: v !== 'none', id: v === 'all' || v === 'id', elevation: v !== 'id', description: v === 'all' || v === 'zd'})); }}><option value="none">Nenhum rótulo</option><option value="z">Apenas Cota</option><option value="zd">Cota e Descrição</option><option value="all">Ponto, Cota e Descrição</option><option value="id">Apenas identificador</option><option value="custom" disabled>Personalizado</option></select></label>
           {[['visible', 'Exibir rótulos'], ['id', 'Identificador'], ['elevation', 'Cota (Z)'], ['description', 'Descrição']].map(([k, label]) => <label className="check" key={k}><input type="checkbox" checked={style[k]} onChange={e => setLabel(k, e.target.checked)}/>{label}</label>)}
           <div className="two"><label>Cor do rótulo<input type="color" value={style.color} onChange={e => setLabel('color', e.target.value)}/></label><label>Tamanho<input type="number" min="8" max="24" value={style.size} onChange={e => setLabel('size', Math.max(8, Math.min(24, +e.target.value)))}/></label></div>
           <label>Casas decimais<select value={style.precision} onChange={e => setLabel('precision', +e.target.value)}>{[0, 1, 2, 3, 4].map(i => <option key={i}>{i}</option>)}</select></label>
-        </section>
+        </Panel>
       </>}
       {sideTab === 'export' && <>
-        <section><h2>Exportar para CAD</h2>
+        <Panel title="Exportar para CAD">
           {[['tin', 'Terreno (3DFACE)'], ['points', 'Pontos por grupo'], ['labels', 'Rótulos dos pontos'], ['contours', 'Curvas de nível'], ['design', 'Plataformas, taludes e offset'], ['grade', 'Greide 3D (eixo)'], ['sections', 'Linhas de seção do terreno']].map(([k, label]) => <label className="check" key={k}><input type="checkbox" checked={dxfOptions[k]} onChange={e => setDxfOptions(o => ({...o, [k]: e.target.checked}))}/>{label}</label>)}
           <button className="full primary" onClick={() => exportFile('dxf')}>↓ DXF (AutoCAD / Civil 3D)</button>
           <div className="two"><button onClick={() => exportFile('landxml')}>LandXML</button><button onClick={() => exportFile('csv')}>CSV pontos</button></div>
           <p className="hint">LandXML leva a superfície do terreno e, havendo plataformas, a superfície de projeto.</p>
-        </section>
-        <section><h2>Projeto</h2><div className="two"><button onClick={saveProject}>Salvar JSON</button><button onClick={() => projectFile.current.click()}>Abrir JSON</button></div><p className="hint">O JSON v4 guarda terreno, edições, eixo, greide, plataformas e estilos. Abre também v1, v2 e v3.</p></section>
+        </Panel>
+        <Panel title="Projeto"><div className="two"><button onClick={saveProject}>Salvar JSON</button><button onClick={() => projectFile.current.click()}>Abrir JSON</button></div><p className="hint">O JSON v4 guarda terreno, edições, eixo, greide, plataformas e estilos. Abre também v1, v2 e v3.</p></Panel>
       </>}
     </fieldset></aside>
     <main>
-      <div className="toolbar"><div>{[['orbit', '↗ Navegar', 'N'], ['breakline', '⌁ Linha obrig.', 'L'], ['boundary', '⌗ Contorno', 'B'], ['profile', '⟋ Eixo', 'P'], ['platform', '▱ Plataforma', 'G'], ['swap', '⇄ Inverter', 'S'], ['delete', '⌫ Aparar', 'D']].map(([id, label, key]) => <button disabled={busy} title={`${TOOL_NAMES[id]} (${key})`} key={id} className={tool === id ? 'active' : ''} onClick={() => chooseTool(id)}>{label}</button>)}</div>
-        <div><button disabled={busy || !history.length} onClick={undo} title="Ctrl+Z">↶ Desfazer</button><button onClick={() => setFitKey(k => k + 1)} title="Z">⤢ Enquadrar</button><button onClick={() => setHelp(v => !v)}>Atalhos</button></div></div>
-      <div className="view-layout-bar"><div className="layout-switch" role="tablist">{[['2D', 'Planta 2D', '2'], ['split', 'Duas vistas', 'V'], ['3D', 'Modelo 3D', '3'], ['profile', 'Perfil', '4'], ['sections', 'Seções', '5']].map(([id, label, key]) => <button role="tab" aria-pressed={layout === id} key={id} className={layout === id ? 'active' : ''} title={`${label} (${key})`} disabled={(id === 'profile' || id === 'sections') && !profile} onClick={() => { setLayout(id); if (id !== '2D' && id !== 'split') setTool('orbit'); }}>{label}</button>)}</div>
+      {(layout === 'split' || (profile && ['2D', 'split', '3D'].includes(layout))) && <div className="stage-bar">
         {layout === 'split' && <label className="split-control">Divisão<input aria-label="Divisão das duas vistas" type="range" min="30" max="70" value={splitRatio} onChange={e => setSplitRatio(+e.target.value)}/></label>}
-        {profile && ['2D', 'split', '3D'].includes(layout) && <label className="check inline"><input type="checkbox" checked={showProfileDock} onChange={e => setShowProfileDock(e.target.checked)}/>Perfil acoplado</label>}
-        <span className="sync-label"><i className="live"/> Modelo compartilhado · atualização automática</span></div>
+        {profile && ['2D', 'split', '3D'].includes(layout) && <label className="check inline"><input type="checkbox" checked={showProfileDock} onChange={e => setShowProfileDock(e.target.checked)}/>Perfil acoplado</label>}</div>}
       {['2D', 'split', '3D'].includes(layout) && <div className={`viewports ${layout === 'split' ? 'split' : ''}`} style={{'--plan-ratio': splitRatio + '%'}} aria-busy={busy}>{layout !== '3D' && panel('2D')}{layout !== '2D' && panel('3D')}{busy && <div className="busy-overlay" role="status">Calculando superfície em segundo plano…</div>}</div>}
       {layout === 'sections' && <div className="viewports sections-plan" aria-busy={busy}>{panel('2D')}</div>}
-      {layout !== 'profile' && <div className="instruction">{picking ? <><span>{TOOL_NAMES[tool]}: {pickCount} {tool === 'boundary' ? 'pontos' : 'vértices'} · {TOOL_HINTS[tool]}</span>
+      {layout !== 'profile' && <div className={`instruction ${picking || tool === 'swap' || tool === 'delete' ? 'tool-active' : ''}`}>{picking ? <><span>{TOOL_NAMES[tool]}: {pickCount} {tool === 'boundary' ? 'pontos' : 'vértices'} · {TOOL_HINTS[tool]}</span>
         <button disabled={busy || pickCount < minPick} onClick={() => finish()}>Concluir (Enter)</button>
         <button disabled={busy || !pickCount} onClick={() => tool === 'boundary' ? setSelected(s => s.slice(0, -1)) : setPickDraft(s => s.slice(0, -1))}>Retirar último</button>
         <button onClick={() => chooseTool('orbit')}>Cancelar (Esc)</button></>
-        : <span>{tool === 'swap' ? 'Clique na diagonal interna a inverter na planta.' : tool === 'delete' ? 'Clique na aresta para remover as faces adjacentes.' : 'Roda: zoom no cursor · arraste: mover (planta) / orbitar (3D) · clique numa plataforma para selecionar · G plataforma · P eixo · 4 perfil · 5 seções'}</span>}</div>}
+        : <span>{tool === 'swap' ? 'Clique na diagonal interna a inverter na planta.' : tool === 'delete' ? 'Clique na aresta para remover as faces adjacentes.' : 'Roda: zoom no cursor · arraste: mover / orbitar · clique numa plataforma para selecioná-la'}</span>}</div>}
       {layout === 'profile' && editor}
       {layout === 'sections' && <SectionViewer sections={sections} index={Math.min(sectionIndex, Math.max(0, sections.length - 1))} onIndex={setSectionIndex} totals={sectionTotals} halfWidth={sectionSettings.halfWidth} precision={style.precision} equalScale={equalScale} onEqualScale={setEqualScale}/>}
       {['2D', 'split', '3D'].includes(layout) && showProfileDock && editor}
       {!mesh.triangles.length && <div className="empty-warning">Nenhum triângulo passou pelos filtros. Aumente o limite de aresta ou revise o contorno.</div>}
       {help && <div className="shortcut-help"><b>Atalhos Terra CAD</b><span>Vistas: 2 planta · V duas vistas · 3 modelo · 4 perfil · 5 seções · Z enquadrar · Ferramentas: N navegar · L linha obrigatória · B contorno · P eixo · G plataforma · S inverter · D aparar · C curvas · F3 atração · Enter concluir · Backspace retirar · Esc cancelar · Perfil: Delete remove PVI · Seções: ◀ ▶ · Ctrl+Z/S/O</span></div>}
-      {layout !== 'profile' && <><div className="data-title"><button onClick={() => setShowTable(v => !v)}>{showTable ? '▾' : '▸'} Pontos do levantamento</button><span>{visibleIndices.length} no filtro · tabela com até 100 pontos</span></div>
+      {layout !== 'profile' && <><div className="data-title"><button onClick={() => setShowTable(v => !v)} aria-expanded={showTable}><Icon name="table" size={16}/>Pontos do levantamento {showTable ? '▾' : '▸'}</button><span>{visibleIndices.length} no filtro · tabela com até 100 pontos</span></div>
       {showTable && <div className="table-wrap"><table><thead><tr>{['PONTO', 'ESTE (X)', 'NORTE (Y)', 'COTA (Z)', 'DESCRIÇÃO'].map(t => <th key={t}>{t}</th>)}</tr></thead><tbody>{visibleIndices.slice(0, 100).map(i => points[i]).map(p => <tr key={p.id}><td>{p.id}</td><td>{p.x.toFixed(3)}</td><td>{p.y.toFixed(3)}</td><td>{p.z.toFixed(style.precision)}</td><td>{p.description || '—'}</td></tr>)}</tbody></table></div>}</>}
       {errors.length > 0 && <details className="errors"><summary>{errors.length} linhas rejeitadas</summary>{errors.map((e, i) => <p key={i}>Linha {e.line}: {e.message}</p>)}</details>}
     </main></div>
     {cadImport && <CadImportDialog data={cadImport} onCancel={() => { setCadImport(null); setMessage('Importação do desenho cancelada.'); }} onConfirm={importCadPoints}/>}
-    <footer role="status"><i className="live"/>{message}<span className="footer-right">{selPlat ? `${selPlat.name} · ` : ''}TIN 2.5D · Coordenadas originais · v{VERSION}</span></footer>
+    <footer className="statusbar"><span role="status" className="status-message"><i className={`live ${busy ? 'busy' : ''}`}/>{busy ? 'Calculando…' : message}</span><span className="footer-right">{selPlat && <span>{selPlat.name}</span>}<span className={snap ? 'on' : ''}>Atração {snap ? 'ON' : 'OFF'}</span><span>TIN 2.5D</span><span>v{VERSION}</span></span></footer>
   </div>;
 }
 

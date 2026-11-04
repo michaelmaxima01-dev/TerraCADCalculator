@@ -214,7 +214,7 @@ export default function ViewportV4(props) {
   useEffect(() => {
     const r = runtime.current; if (!r) return;
     const {points, triangles, terrain3D, constraints, mode, tool, visibleIndices, layers, presentation, groupColors, boundary, fitKey, contours, contourStyle, alignment, profileSamples, referenceZ, designs, selectedPlatform, sectionLines, currentStation, gradeLine3D} = props;
-    disposeScene(r.scene); const scene = new THREE.Scene(); scene.background = new THREE.Color(mode === '2D' ? '#101e2b' : '#172531'); r.scene = scene; r.surface = null;
+    disposeScene(r.scene); const scene = new THREE.Scene(); scene.background = new THREE.Color(mode === '2D' ? '#0e1821' : '#111d28'); r.scene = scene; r.surface = null;
     let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
     for (const p of points) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); }
     const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2, span = Math.max(maxX - minX, maxY - minY, 1);
@@ -240,7 +240,9 @@ export default function ViewportV4(props) {
       const material = new THREE.MeshStandardMaterial({color: presentation.style === 'solid' && mode === '3D' ? '#97b5bd' : '#ffffff', vertexColors: presentation.style !== 'solid' || mode === '2D', side: THREE.DoubleSide, roughness: .9, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, wireframe: mode === '3D' && presentation.style === 'wire'});
       const mesh = new THREE.Mesh(geometry, material); scene.add(mesh); r.surface = mesh;
     }
-    scene.add(new THREE.AmbientLight(0xffffff, 1.4)); const light = new THREE.DirectionalLight(0xfff4df, 2.1); light.position.set(span, span * 2, span * .3); scene.add(light);
+    scene.add(new THREE.HemisphereLight(0xe4f1ff, 0x2b2418, mode === '2D' ? 1.5 : 1.05)); scene.add(new THREE.AmbientLight(0xffffff, mode === '2D' ? .55 : .3));
+    const light = new THREE.DirectionalLight(0xfff1dc, mode === '2D' ? 1.3 : 2.4); light.position.set(-span * .8, span * 1.1, span * .6); scene.add(light);
+    const fillLight = new THREE.DirectionalLight(0x9fc4ff, .35); fillLight.position.set(span, span * .5, -span); scene.add(fillLight);
     const segments = (vectors, color, opacity = 1, depthTest = false) => {
       if (!vectors.length) return;
       const positions = new Float32Array(vectors.length * 3); vectors.forEach((v, i) => v.toArray(positions, i * 3));
@@ -337,8 +339,9 @@ export default function ViewportV4(props) {
 }
 
 const HYPSO = [[0, '#2f6f73'], [.25, '#5fa36b'], [.5, '#c9c86a'], [.75, '#c48a4f'], [1, '#efe6dc']].map(([t, c]) => [t, new THREE.Color(c)]);
+const CONCEPT = [[0, '#2e5f63'], [.3, '#4f8a68'], [.6, '#8fae6c'], [.85, '#c9bf86'], [1, '#e8e0c8']].map(([t, c]) => [t, new THREE.Color(c)]);
 function hypsometric(t, style, out) {
-  if (style !== 'hypso') return out.setHSL(.48 - t * .18, .32, .39 + t * .12);
+  if (style !== 'hypso') { for (let i = 1; i < CONCEPT.length; i++) if (t <= CONCEPT[i][0]) return out.copy(CONCEPT[i - 1][1]).lerp(CONCEPT[i][1], (t - CONCEPT[i - 1][0]) / (CONCEPT[i][0] - CONCEPT[i - 1][0])); return out.copy(CONCEPT.at(-1)[1]); }
   for (let i = 1; i < HYPSO.length; i++) if (t <= HYPSO[i][0]) return out.copy(HYPSO[i - 1][1]).lerp(HYPSO[i][1], (t - HYPSO[i - 1][0]) / (HYPSO[i][0] - HYPSO[i - 1][0]));
   return out.copy(HYPSO.at(-1)[1]);
 }

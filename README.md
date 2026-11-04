@@ -2,6 +2,8 @@
 
 Topografia e terraplenagem no navegador: nuvem de pontos ou desenho **DWG/DXF** → TIN restrita → planta e 3D, curvas de nível, perfil com greide editável, seções, plataformas com taludes, volumes e exportação DXF/LandXML.
 
+![Terra CAD — estação de trabalho](previa-estacao.png)
+
 Veja **LEIA-ME-V4.md** para as novidades desta versão, **LEIA-ME-V3.md** para curvas/volumes/exportação e **LEIA-ME-V2.md** para o fluxo de triangulação.
 
 ## Usar o pacote pronto
