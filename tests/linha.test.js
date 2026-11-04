@@ -125,7 +125,7 @@ test('malha da linha: offset no terreno, tipos coerentes e sem NaN', () => {
   m.daylight.forEach(v => close(v.z, 105, 1e-3, 'offset'));
   assert.equal(m.triangles.length, m.types.length);
   assert.ok(m.triangles.every(t => t.every(i => Number.isFinite(m.vertices[i].z))));
-  assert.ok(m.types.every(t => t === 'cut'));
+  assert.ok(m.types.every(t => t === 'cut' || t === 'wall'));
   assert.ok(m.base.length >= 2);
 });
 
@@ -172,4 +172,21 @@ test('exportação: DXF com eixo e offset da linha; LandXML com a superfície de
   assert.match(dxf, /\nTC_LP_EIXO\r?\n/); assert.match(dxf, /\nTC_LP_OFFSET\r?\n/);
   const xml = toLandXML({points, triangles}, {name: 'Terreno', extra: [{name: 'Projeto', vertices: mesh.vertices, triangles: mesh.triangles}]});
   assert.equal((xml.match(/<Surface /g) || []).length, 2);
+});
+
+test('buildLineBase informa estaca e cota de cada PI (meio do arco quando há curva)', () => {
+  const info = buildLineBase(validateDesignLine({pis: [{x: 0, y: 0}, {x: 100, y: 0, radius: 20}, {x: 100, y: 100}], elevation: {mode: 'ramp', start: 50, slope: 1}}));
+  assert.equal(info.piStations.length, 3);
+  close(info.piStations[0], 0, 1e-9); close(info.piStations[1], 80 + 5 * Math.PI, 0.05); close(info.piStations[2], info.length, 1e-9);
+  close(info.piZ[2], 50 + info.length / 100, 1e-9);
+});
+
+test('linha de um lado só ganha a parede vertical do lado sem talude (só desenho)', () => {
+  const {points, triangles} = planeTerrain(() => 105);
+  const m = gradeLine(points, triangles, reta());
+  const walls = m.triangles.filter((_, k) => m.types[k] === 'wall');
+  assert.ok(walls.length >= 2, `paredes: ${walls.length}`);
+  const zs = walls.flat().map(i => m.vertices[i].z);
+  close(Math.min(...zs), 100, 1e-9); close(Math.max(...zs), 105, 1e-9);
+  assert.equal(gradeLine(points, triangles, reta({side: 'both'})).types.filter(t => t === 'wall').length, 0);
 });

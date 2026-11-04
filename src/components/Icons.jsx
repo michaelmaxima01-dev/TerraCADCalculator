@@ -6,6 +6,7 @@ const PATHS = {
   breakline: <><path d="M3 18l5.5-8 4.5 4.5L21 5"/><circle cx="3" cy="18" r="1.4"/><circle cx="8.5" cy="10" r="1.4"/><circle cx="13" cy="14.5" r="1.4"/><circle cx="21" cy="5" r="1.4"/></>,
   boundary: <><path d="M4.5 8.5L10 4l9.5 3-1.8 11.5L5.5 20z" strokeDasharray="3 2.2"/></>,
   profile: <><path d="M3 20L21 4"/><path d="M6.2 14.6l2.2 2.2M10.4 10.8l2.2 2.2M14.6 7l2.2 2.2"/></>,
+  line: <><path d="M3 17c4-1 5-8 9-8s4 6 9 5"/><rect x="1.5" y="15.5" width="3" height="3" rx=".5"/><rect x="10.5" y="7.5" width="3" height="3" rx=".5"/><rect x="19.5" y="12.5" width="3" height="3" rx=".5"/></>,
   platform: <><path d="M7 9.5h10l4 8.5H3z"/><path d="M9.5 9.5L8.5 6h7l-1 3.5"/></>,
   swap: <><path d="M5 8h13l-3.5-3.5M19 16H6l3.5 3.5"/></>,
   trim: <><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/><path d="M8.3 15.7L18 4M15.7 15.7L6 4"/></>,

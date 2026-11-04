@@ -59,7 +59,7 @@ export function toDXF(model, options = {}) {
   // Projeto: plataformas e taludes (3DFACE por tipo), borda da plataforma e linha de offset
   const face = (layer, [a, b, c]) => { let f = pair(0, '3DFACE') + pair(8, layer); [a, b, c, c].forEach((p, k) => { f += pair(10 + k, n(p.x)) + pair(20 + k, n(p.y)) + pair(30 + k, n(p.z)); }); return f; };
   for (const d of designs) {
-    d.mesh.triangles.forEach((t, k) => { const type = d.mesh.types[k]; out += face(type === 'platform' ? DXF_LAYERS.PLATAFORMA.name : type === 'fill' ? DXF_LAYERS.TALUDE_ATERRO.name : DXF_LAYERS.TALUDE_CORTE.name, t.map(i => d.mesh.vertices[i])); });
+    d.mesh.triangles.forEach((t, k) => { const type = d.mesh.types[k]; if (type === 'wall') return; out += face(type === 'platform' ? DXF_LAYERS.PLATAFORMA.name : type === 'fill' ? DXF_LAYERS.TALUDE_ATERRO.name : DXF_LAYERS.TALUDE_CORTE.name, t.map(i => d.mesh.vertices[i])); });
     if (d.kind === 'line') { // linha de projeto: eixo 3D, offset e cristas/pés das bermas
       if (d.mesh.base?.length > 1) out += polyline3D(DXF_LAYERS.LP_EIXO.name, d.mesh.base.map(p => [p.x, p.y, p.z]), d.line.closed);
       for (const line of d.mesh.benchLines || []) out += polyline3D(DXF_LAYERS.LP_CRISTA.name, line.map(p => [p.x, p.y, p.z]), false);

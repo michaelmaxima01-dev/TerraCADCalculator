@@ -41,7 +41,7 @@ const emptyMesh = warnings => ({vertices: [], triangles: [], types: [], daylight
 /** Malha de projeto da linha (mesmo formato de castSlopes, com base e curvas). */
 export function gradeLine(points, triangles, line, {elevationAt, spacing, maxDistance} = {}) {
   const terrainAt = elevationAt || triangleLocator(points, triangles), info = compileLine(line, terrainAt);
-  if (info.base.length < 2) return {...emptyMesh(info.warnings), base: [], curves: info.curves};
+  if (info.base.length < 2) return {...emptyMesh(info.warnings), base: [], curves: info.curves, piStations: info.piStations, piZ: info.piZ, length: 0, daylightRuns: []};
   let mesh;
   if (info.platform) mesh = gradePlatform(points, triangles, info.platform, {spacing, maxDistance, elevationAt: terrainAt});
   else {
@@ -49,16 +49,25 @@ export function gradeLine(points, triangles, line, {elevationAt, spacing, maxDis
       ruleFor: mode => mode === 'cut' ? {H: line.cutSlope, bench: benchFor(line, 'cut')} : {H: line.fillSlope, bench: benchFor(line, 'fill')},
       spacing: spacing > 0 ? spacing : d.spacing, maxDistance: maxDistance > 0 ? maxDistance : d.maxDistance};
     const sides = line.closed ? ['inside'] : line.side === 'both' ? ['left', 'right'] : [line.side];
-    mesh = emptyMesh([]);
+    mesh = emptyMesh([]); mesh.daylightRuns = [];
     for (const side of sides) {
       const m = castSlopes(line.closed ? info.ccw : info.base, {...opts, side}), off = mesh.vertices.length;
       mesh.vertices.push(...m.vertices); m.triangles.forEach(t => mesh.triangles.push(t.map(i => i + off))); mesh.types.push(...m.types);
-      mesh.daylight.push(...m.daylight); mesh.hatch.push(...m.hatch); mesh.benchLines.push(...m.benchLines); mesh.warnings.push(...m.warnings);
+      mesh.daylight.push(...m.daylight); mesh.daylightRuns.push(m.daylight); mesh.hatch.push(...m.hatch); mesh.benchLines.push(...m.benchLines); mesh.warnings.push(...m.warnings);
       mesh.stats.maxCut = Math.max(mesh.stats.maxCut, m.stats.maxCut); mesh.stats.maxFill = Math.max(mesh.stats.maxFill, m.stats.maxFill); mesh.stats.rays += m.stats.rays;
     }
     mesh.warnings = [...new Set(mesh.warnings)];
+    // linha aberta de um lado só: parede vertical entre a base e o terreno do outro lado (só desenho)
+    if (!line.closed && line.side !== 'both') {
+      for (let i = 1; i < info.base.length; i++) {
+        const a = info.base[i - 1], b = info.base[i], ta = terrainAt(a.x, a.y), tb = terrainAt(b.x, b.y);
+        if (ta === null || tb === null || (Math.abs(ta - a.z) < 1e-6 && Math.abs(tb - b.z) < 1e-6)) continue;
+        const k = mesh.vertices.push({...a}, {...b}, {x: b.x, y: b.y, z: tb}, {x: a.x, y: a.y, z: ta}) - 4;
+        mesh.triangles.push([k, k + 1, k + 2], [k, k + 2, k + 3]); mesh.types.push('wall', 'wall');
+      }
+    }
   }
-  return {...mesh, warnings: [...new Set([...info.warnings, ...mesh.warnings])], base: info.base, curves: info.curves};
+  return {...mesh, warnings: [...new Set([...info.warnings, ...mesh.warnings])], base: info.base, curves: info.curves, piStations: info.piStations, piZ: info.piZ, length: info.length, daylightRuns: mesh.daylightRuns || [mesh.daylight]};
 }
 
 /** Volumes de corte e aterro da linha, integrados em grade. */

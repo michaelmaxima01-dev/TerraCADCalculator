@@ -4,8 +4,8 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {edgesOf} from '../core/tin';
 import {SNAP_LABELS} from '../core/snap';
 
-const PICK_TOOLS = ['breakline', 'boundary', 'profile', 'platform'];
-const DESIGN_COLORS = {platform: '#b9c0c7', cut: '#d98b5f', fill: '#6aa6d6', mixed: '#a99f8f', none: '#b9c0c7'};
+const PICK_TOOLS = ['breakline', 'boundary', 'profile', 'platform', 'line'];
+const DESIGN_COLORS = {platform: '#b9c0c7', cut: '#d98b5f', fill: '#6aa6d6', mixed: '#a99f8f', none: '#b9c0c7', wall: '#8a8276'};
 
 export default function ViewportV4(props) {
   const host = useRef(), labels = useRef(), cursor = useRef(), readout = useRef(), runtime = useRef(), latest = useRef(props);
@@ -213,7 +213,7 @@ export default function ViewportV4(props) {
   const plan = props.mode === '2D';
   useEffect(() => {
     const r = runtime.current; if (!r) return;
-    const {points, triangles, terrain3D, constraints, mode, tool, visibleIndices, layers, presentation, groupColors, boundary, fitKey, contours, contourStyle, alignment, profileSamples, referenceZ, designs, selectedPlatform, sectionLines, currentStation, gradeLine3D} = props;
+    const {points, triangles, terrain3D, constraints, mode, tool, visibleIndices, layers, presentation, groupColors, boundary, fitKey, contours, contourStyle, alignment, profileSamples, referenceZ, designs, selectedPlatform, selectedLine, sectionLines, currentStation, gradeLine3D} = props;
     disposeScene(r.scene); const scene = new THREE.Scene(); scene.background = new THREE.Color(mode === '2D' ? '#0e1821' : '#111d28'); r.scene = scene; r.surface = null;
     let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
     for (const p of points) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); }
@@ -268,8 +268,43 @@ export default function ViewportV4(props) {
     if (mode === '2D' && layers.breaklines) lines(constraints, '#ffbd70');
     if (mode === '2D' && layers.border) lines(r.edges.filter(e => e.faces.length === 1).map(e => [e.a, e.b]), '#a9e6ce');
     if (mode === '2D' && boundary.length) lines(boundary.map((i, k) => [i, boundary[(k + 1) % boundary.length]]), '#67c4ff');
+    // ---- Projeto: linhas de projeto ----
+    function drawLine(d) {
+      const {line, mesh: m} = d, sel = line.id === selectedLine, base = m.base || [];
+      if (base.length < 2) return;
+      if (mode === '3D') {
+        if (m.triangles.length) {
+          const pos = new Float32Array(m.triangles.length * 9), col = new Float32Array(m.triangles.length * 9), c = new THREE.Color();
+          m.triangles.forEach((t, k) => { c.set(DESIGN_COLORS[m.types[k]] || '#b9c0c7'); t.forEach((i, j) => { const v = m.vertices[i]; world(v.x, v.y, v.z + lift * .5).toArray(pos, k * 9 + j * 3); c.toArray(col, k * 9 + j * 3); }); });
+          const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
+          scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({vertexColors: true, side: THREE.DoubleSide, roughness: .85, flatShading: true})));
+        }
+        (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y, v.z + lift)), line.closed), '#7dffb0', 1, true));
+        (m.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y, v.z + lift))), '#ffd27a', .95, true));
+        segments(polyline(base.map(v => world(v.x, v.y, v.z + lift)), line.closed), sel ? '#ffffff' : '#ffe9a8', 1, true);
+        return;
+      }
+      const cutHatch = [], fillHatch = [];
+      m.hatch.forEach(([a, b, md]) => (md === 'cut' ? cutHatch : fillHatch).push(world(a.x, a.y), world(b.x, b.y)));
+      segments(cutHatch, '#ff9f6b', .8); segments(fillHatch, '#6fc3ff', .8);
+      (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y)), line.closed), '#7dffb0'));
+      (m.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y))), '#ffd27a', .7));
+      segments(polyline(base.map(v => world(v.x, v.y)), line.closed), sel ? '#ffffff' : '#ffe08a');
+      // PIs como quadrados e estacas ao longo da linha
+      const piPos = new Float32Array(line.pis.length * 3); line.pis.forEach((p, i) => world(p.x, p.y).toArray(piPos, i * 3));
+      scene.add(new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(piPos, 3)), new THREE.PointsMaterial({size: sel ? 9 : 7, color: sel ? '#ffffff' : '#ffe08a', sizeAttenuation: false, depthTest: false})));
+      line.pis.forEach((p, i) => r.textLabels.push({v: world(p.x, p.y), text: `PI${i + 1}`, color: sel ? '#ffffff' : '#ffe9a8', dx: 6, dy: -10}));
+      const step = (m.length || 0) > 400 ? 100 : 20;
+      for (let st = step; st < (m.length || 0) - 1e-6; st += step) {
+        let k = 1; while (k < base.length - 1 && base[k].s < st) k++;
+        const a = base[k - 1], b = base[k], t = b.s > a.s ? (st - a.s) / (b.s - a.s) : 0;
+        r.textLabels.push({v: world(a.x + t * (b.x - a.x), a.y + t * (b.y - a.y)), text: `${Math.floor(st / 1000)}+${String(Math.round(st % 1000)).padStart(3, '0')}`, color: '#c9b37a', dx: 4, dy: 10});
+      }
+      r.textLabels.push({v: world(base[0].x, base[0].y), text: line.name, color: sel ? '#ffffff' : '#ffe9a8', dx: 6, dy: 14});
+    }
     // ---- Projeto: plataformas e taludes ----
     for (const d of designs || []) {
+      if (d.kind === 'line') { drawLine(d); continue; }
       const sel = d.platform.id === selectedPlatform;
       if (mode === '3D') {
         const pos = new Float32Array(d.mesh.triangles.length * 9), col = new Float32Array(d.mesh.triangles.length * 9), c = new THREE.Color();
@@ -324,7 +359,7 @@ export default function ViewportV4(props) {
     };
     if (mode === '2D' && layers.points) makePoints(visibleIndices, 5);
     r.resize(); r.invalidate();
-  }, [props.points, props.triangles, props.mode, props.presentation, props.fitKey, props.contours, props.contourStyle?.visible2D, props.contourStyle?.visible3D, props.designs, props.selectedPlatform,
+  }, [props.points, props.triangles, props.mode, props.presentation, props.fitKey, props.contours, props.contourStyle?.visible2D, props.contourStyle?.visible3D, props.designs, props.selectedPlatform, props.selectedLine,
     plan ? props.constraints : null, plan ? props.visibleIndices : null, plan ? props.layers : null, plan ? props.groupColors : null, plan ? props.boundary : null,
     plan ? props.alignment : null, plan ? props.sectionLines : null, plan ? props.currentStation : null,
     plan ? null : props.terrain3D, plan ? null : props.designAt, plan ? null : props.profileSamples, plan ? null : props.referenceZ, plan ? null : props.gradeLine3D]);

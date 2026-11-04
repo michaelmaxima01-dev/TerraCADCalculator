@@ -335,3 +335,11 @@ button.danger:hover{background:#4d2a2d}
 .admin-create footer,.admin-unlock footer{display:flex;justify-content:space-between;align-items:center;gap:10px}
 @media (max-width:800px){.admin-row{grid-template-columns:1fr 1fr}.admin-row.head{display:none}.admin-actions{grid-column:1/-1}.admin-grid{grid-template-columns:1fr 1fr}.tc5 .account-btn span{display:none}}
 .admin-actions select{width:auto;flex:0 0 auto}
+/* linha de projeto */
+.tc5 .pi-table{display:flex;flex-direction:column;gap:4px;max-height:260px;overflow:auto}
+.tc5 .pi-row{display:grid;grid-template-columns:30px 1fr 1fr 1fr;gap:6px;align-items:center;font-size:11px}
+.tc5 .pi-row.head{color:var(--text-3);font-size:10px;letter-spacing:.6px;text-transform:uppercase}
+.tc5 .pi-row .num{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--text)}
+.tc5 .pi-row label{font-size:0}
+.tc5 .pi-row input{width:100%;padding:5px 6px!important}
+.tc5 .line-card .small{margin:0;font-size:11px}

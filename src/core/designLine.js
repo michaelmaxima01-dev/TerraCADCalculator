@@ -52,7 +52,7 @@ export function validateDesignLine(l) {
  * Polilinha de base da linha: arcos discretizados (flecha ≤ 2 cm, passo ≤ 3°), estaca e cota em cada vértice.
  * @param {object} line linha validada
  * @param {(x,y)=>number|null} [terrainAt] necessário no modo de cota 'terrain'
- * @returns {{base:Array<{x,y,z,s}>, length:number, closed:boolean, curves:Array<{pi,radius,clamped,T,arcLength}>, warnings:string[]}}
+ * @returns {{base:Array<{x,y,z,s}>, length:number, closed:boolean, curves:Array<{pi,radius,clamped,T,arcLength}>, warnings:string[], piStations:number[], piZ:number[]}}
  */
 export function buildLineBase(line, terrainAt = null) {
   const {pis, closed, elevation} = line, n = pis.length, warnings = [], curves = [];
@@ -62,7 +62,7 @@ export function buildLineBase(line, terrainAt = null) {
   else if (elevation.mode === 'terrain') {
     piZ = pis.map(p => terrainAt ? terrainAt(p.x, p.y) : null);
     const out = piZ.map((z, i) => z === null || z === undefined ? i + 1 : 0).filter(Boolean);
-    if (out.length) return {base: [], length: 0, closed, curves, warnings: out.map(i => `PI ${i} fora da superfície: mova-o para dentro do terreno.`)};
+    if (out.length) return {base: [], length: 0, closed, curves, warnings: out.map(i => `PI ${i} fora da superfície: mova-o para dentro do terreno.`), piStations: pis.map(() => 0), piZ: pis.map(() => NaN)};
     piZ = piZ.map(z => z - elevation.drop);
   }
   // vértices com curvas de canto
@@ -107,7 +107,8 @@ export function buildLineBase(line, terrainAt = null) {
     return piZ[list.at(-1).i];
   };
   base.forEach(v => { v.z = zAt(v.s); });
-  return {base, length, closed, curves, warnings};
+  const piStations = pis.map((_, i) => { const a = anchors.find(q => q.i === i); return a ? a.s : 0; });
+  return {base, length, closed, curves, warnings, piStations, piZ: piStations.map(zAt)};
 }
 
 /**
