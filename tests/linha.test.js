@@ -156,7 +156,7 @@ test('validateProject: v6 com linha de projeto; v5 sem linhas; v7 recusado', () 
   const r = validateProject({version: 6, points: pts, triangles: tri, designLines: [{id: 'l1', name: 'Acesso', pis: [{x: 10, y: 10}, {x: 50, y: 20, radius: 8}, {x: 90, y: 10}]}]});
   assert.equal(r.designLines.length, 1); assert.equal(r.designLines[0].pis[1].radius, 8); assert.equal(r.designLines[0].name, 'Acesso');
   assert.deepEqual(validateProject({version: 5, points: pts, triangles: tri}).designLines, []);
-  assert.throws(() => validateProject({version: 7, points: pts, triangles: tri}), /Versão/);
+  assert.throws(() => validateProject({version: 8, points: pts, triangles: tri}), /Versão/);
 });
 
 test('designSurfaceFunction considera as linhas depois das plataformas', () => {
@@ -362,4 +362,10 @@ test('cubageTable: parciais pela média das áreas e saldo acumulado', () => {
   assert.equal(t.length, 5); assert.deepEqual([t[0].cutVol, t[0].fillVol, t[0].balance], [0, 0, 0]);
   close(t[1].cutVol, 200, 1e-9); close(t[1].fillVol, 80, 1e-9); close(t.at(-1).accCut, 800, 1e-9); close(t.at(-1).balance, 480, 1e-9);
   assert.equal(cubageTable([{station: 0, cutArea: 3, fillArea: 1}])[0].balance, 0);
+});
+
+test('ponto em cima da linha usa a cota da linha, mesmo no lado sem talude (arredondamento)', () => {
+  const l = reta(), info = compileLine(l, null);
+  close(lineElevationAt(l, info, 50, 1e-9, 105), 100, 1e-9, 'lado esquerdo por arredondamento');
+  close(lineElevationAt(l, info, 50, -1e-9, 105), 100, 1e-6);
 });

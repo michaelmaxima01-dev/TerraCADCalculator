@@ -90,7 +90,7 @@ export function toLandXML({points, triangles, boundary = []}, {name = 'TerraCAD'
   const d = date.toISOString();
   let s = `<?xml version="1.0" encoding="UTF-8"?>\n<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2" date="${d.slice(0, 10)}" time="${d.slice(11, 19)}">\n`;
   s += ` <Units><Metric areaUnit="squareMeter" linearUnit="meter" volumeUnit="cubicMeter" temperatureUnit="celsius" pressureUnit="milliBars"/></Units>\n`;
-  s += ` <Application name="Terra CAD" version="4.0"/>\n <Surfaces>\n  <Surface name="${xml(name)}">\n`;
+  s += ` <Application name="Terra CAD" version="5.0"/>\n <Surfaces>\n  <Surface name="${xml(name)}">\n`;
   if (boundary.length) s += `   <SourceData><Boundaries><Boundary bndType="outer" edgeTrim="true" name="Contorno"><PntList3D>${[...boundary, boundary[0]].map(i => `${n(points[i].y)} ${n(points[i].x)} ${n(points[i].z)}`).join(' ')}</PntList3D></Boundary></Boundaries></SourceData>\n`;
   s += `   <Definition surfType="TIN">\n    <Pnts>\n`;
   for (const p of used) s += `     <P id="${id.get(p)}">${n(points[p].y)} ${n(points[p].x)} ${n(points[p].z)}</P>\n`;

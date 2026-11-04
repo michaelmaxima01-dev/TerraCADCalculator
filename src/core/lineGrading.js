@@ -28,8 +28,8 @@ export function lineElevationAt(line, info, x, y, T) {
   if (info.base.length < 2) return null;
   if (line.closed && !insidePolygonXY(x, y, info.base)) return null; // 'inside': só o interior
   const q = lineNearest(info, x, y);
+  if (!q.atEnd && q.d < 1e-6) return q.z; // em cima da linha: a própria cota (o lado é indefinido por arredondamento)
   if (!line.closed && (q.atEnd || (line.side !== 'both' && q.side !== line.side))) return null;
-  if (q.d < 1e-12) return q.z;
   if (T === null || T === undefined) return null;
   if (line.end?.mode === 'depth') return depthDesign(q.z, q.d, line.cutSlope, benchFor(line, 'cut'), line.end, T);
   if (T > q.z) { const z = q.z + slopeRise(q.d, line.cutSlope, benchFor(line, 'cut')); return z < T ? z : null; }

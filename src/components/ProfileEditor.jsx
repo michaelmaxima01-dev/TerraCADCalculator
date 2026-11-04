@@ -24,7 +24,7 @@ function interp(series, s) {
  * Editor do perfil longitudinal: terreno, greide editável (PVIs com curvas verticais),
  * perfil do projeto (plataformas/taludes), cota de referência e marcas das seções.
  */
-export default function ProfileEditor({profile, grade, onGradeChange, designProfile, referenceZ, precision = 3, height = 260, sectionStations = [], currentStation = null, onStation, onRemove, onNotice, zoomSensitivity = 1, showTable = true}) {
+export default function ProfileEditor({profile, grade, onGradeChange, onGradeDraft, designProfile, referenceZ, precision = 3, height = 260, sectionStations = [], currentStation = null, onStation, onRemove, onNotice, zoomSensitivity = 1, showTable = true}) {
   const host = useRef(), svg = useRef();
   const [width, setWidth] = useState(900), [mode, setMode] = useState('nav'), [view, setView] = useState(null), [hover, setHover] = useState(null);
   const [selected, setSelected] = useState(null), [draft, setDraft] = useState(null);
@@ -106,14 +106,14 @@ export default function ProfileEditor({profile, grade, onGradeChange, designProf
       if (!d.moved && Math.hypot(x - d.start.x, y - d.start.y) < 3) return;
       d.moved = true;
       const ns = e.shiftKey ? d.station : clampS(ix(x)), {z: nz} = e.altKey ? {z: iz(y)} : snapZ(ns, y);
-      setDraft(movePVI(grade, d.index, Math.round(ns * 100) / 100, Math.round(nz * 1000) / 1000, {min: 0, max: profile.length}));
+      const nd = movePVI(grade, d.index, Math.round(ns * 100) / 100, Math.round(nz * 1000) / 1000, {min: 0, max: profile.length}); setDraft(nd); onGradeDraft?.(nd); // taludes em tempo real
     }
   }
   function up(e) {
     const d = drag.current; drag.current = null;
     if (d?.type === 'pan' && e) { const {x, y} = local(e); if (Math.hypot(x - d.start.x, y - d.start.y) < 3 && x >= pad.l && x <= pad.l + W) onStation?.(clampS(ix(x))); }
-    if (d?.type === 'pvi' && d.moved && draft) { onGradeChange(draft, 'PVI movido no greide.'); }
-    setDraft(null);
+    if (d?.type === 'pvi' && d.moved && draft) { onGradeChange(draft, 'PVI movido no greide: taludes, seções e volumes recalculados.'); }
+    setDraft(null); onGradeDraft?.(null);
   }
   function removeSelected() { if (selected === null || !grade[selected]) return; onGradeChange(grade.filter((_, i) => i !== selected), 'PVI removido.'); setSelected(null); }
   useEffect(() => {
@@ -155,7 +155,7 @@ export default function ProfileEditor({profile, grade, onGradeChange, designProf
       {grade.length > 0 && <button onClick={() => { onGradeChange([], 'Greide removido.'); setSelected(null); }}>Limpar greide</button>}
       <button onClick={onRemove}>Remover traçado</button>
     </div>
-    <svg ref={svg} width={width} height={height} className={`profile-chart mode-${mode}`} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => { drag.current = null; setDraft(null); }} onPointerLeave={() => setHover(null)} onContextMenu={contextMenu} role="img" aria-label="Perfil longitudinal: terreno e greide de projeto">
+    <svg ref={svg} width={width} height={height} className={`profile-chart mode-${mode}`} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => { drag.current = null; setDraft(null); onGradeDraft?.(null); }} onPointerLeave={() => setHover(null)} onContextMenu={contextMenu} role="img" aria-label="Perfil longitudinal: terreno e greide de projeto">
       <defs><clipPath id={clip}><rect x={pad.l} y={pad.t} width={W} height={H}/></clipPath></defs>
       {zt.map(z => <g key={'y' + z}><line x1={pad.l} x2={pad.l + W} y1={sy(z)} y2={sy(z)} className="grid"/><text x={pad.l - 8} y={sy(z)} className="ylabel">{z.toFixed(Math.max(0, Math.min(precision, 2)))}</text></g>)}
       {xt.map(s => <g key={'x' + s}><line y1={pad.t} y2={pad.t + H} x1={sx(s)} x2={sx(s)} className="grid"/><text x={sx(s)} y={height - 10} className="xlabel">{formatStation(s)}</text></g>)}

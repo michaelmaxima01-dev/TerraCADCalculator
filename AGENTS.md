@@ -2,12 +2,12 @@
 
 Aplicação web local de topografia e terraplenagem: nuvem de pontos → TIN restrita (Delaunay com restrições) → planta 2D + 3D, curvas de nível, perfil com greide editável, seções transversais, plataformas com taludes, volumes e exportação DXF/LandXML/CSV. Direção do produto: equivalência funcional progressiva ao Civil 3D, com mais automação. Interface e mensagens em **português do Brasil**.
 
-Versão atual: **4.0** (com linha de projeto, bancadas, término por profundidade, rampas, DWG/DXF e nova interface; projeto JSON v6) (`package.json` 0.4.0). Guias do usuário: `LEIA-ME-V4.md` (novidades), `LEIA-ME-V3.md`, `LEIA-ME-V2.md`.
+Versão atual: **5.0** (greide comandando taludes em tempo real, estaca ativa ligando as vistas, cubagem por estaca; projeto JSON v7; com linha de projeto, bancadas, término por profundidade, rampas, DWG/DXF e nova interface; projeto JSON v6) (`package.json` 0.5.0). Guias do usuário: `LEIA-ME-V4.md` (novidades), `LEIA-ME-V3.md`, `LEIA-ME-V2.md`.
 
 ## Comandos
 - `npm ci` — instalar (Node.js 22.12+)
 - `npm run dev` — Vite em 127.0.0.1
-- `npm test` — `node --test` (101 testes do núcleo; devem continuar passando)
+- `npm test` — `node --test` (111 testes do núcleo; devem continuar passando)
 - `npm run build` — gera `dist/`
 - `node serve.mjs` — servidor de uso (somente módulos nativos), serve `dist/` em http://127.0.0.1:4173
 - `npm run build:hostinger` — versão online com login (`--mode hostinger`, `VITE_TERRACAD_AUTH=1`, `base ./`) em `dist-hostinger/` e pacote `pacote-hostinger/terracad-hostinger.zip` (guia: `PUBLICAR-HOSTINGER.md`)
@@ -53,8 +53,8 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 | `tests/*.test.js` | `core`, `surface`, `v3`, `v4`, `cad` (fixture `tests/fixtures/blocos.dxf`), `v5` (bermas por Pappus, rampas), `slopes`, `linha` (curvas, volumes por seção × comprimento, cava (40³ − 24³)/6, arraste) |
 | `AppV2/V3`, `ViewportV2/V3`, `ProfileChart`, `main.jsx`, `Viewport.jsx` | Versões anteriores preservadas como referência, **fora da entrada** — não editar sem pedido |
 
-## Modelo de dados (projeto JSON v6)
-`{version:6, points:[{id,x,y,z,description}], triangles:[[i,j,k]], breaklines:[[idx...]], boundary:[idx...], maxEdge, alignment:[{x,y}], grade:[{station,z,curve}], platforms:[{id,name,polygon:[{x,y,z?}],elevation,cutSlope,fillSlope,benches:Bench,end:End,visible}], designLines:[{id,name,visible,closed,pis:[{x,y,z?,radius?}],elevation:{mode:'ramp'|'pis'|'terrain',start,slope,drop},side:'left'|'right'|'both'|'outside'|'inside',cutSlope,fillSlope,benches:Bench,end:End}], labelStyle, groupColors, contourStyle, referenceZ, sectionSettings:{interval,halfWidth}}`. Índices referem-se ao array `points`. `Bench = {enabled,height,width,apply:'cut'|'fill'|'both',startAfter,count}`, `End = {mode:'terrain'|'depth',depth,floorZ}`. Vértice sem `z` usa `elevation`. Novas versões devem continuar abrindo v1–v6.
+## Modelo de dados (projeto JSON v7)
+`{version:7, points:[{id,x,y,z,description}], triangles:[[i,j,k]], breaklines:[[idx...]], boundary:[idx...], maxEdge, alignment:[{x,y}], grade:[{station,z,curve}], platforms:[{id,name,polygon:[{x,y,z?}],elevation,cutSlope,fillSlope,benches:Bench,end:End,visible}], designLines:[{id,name,visible,closed,pis:[{x,y,z?,radius?}],elevation:{mode:'ramp'|'pis'|'terrain'|'grade',start,slope,drop},side:'left'|'right'|'both'|'outside'|'inside',cutSlope,fillSlope,benches:Bench,end:End}], labelStyle, groupColors, contourStyle, referenceZ, sectionSettings:{interval,halfWidth}}`. Índices referem-se ao array `points`. `Bench = {enabled,height,width,apply:'cut'|'fill'|'both',startAfter,count}`, `End = {mode:'terrain'|'depth',depth,floorZ}`. Vértice sem `z` usa `elevation`. Modo `grade`: cota = greide do eixo na estaca do ponto projetado − `drop`. Novas versões devem continuar abrindo v1–v7.
 
 ## Regras do domínio
 - Recalcular a TIN descarta inversões/cortes manuais; contorno, linhas obrigatórias, eixo, greide e plataformas persistem.

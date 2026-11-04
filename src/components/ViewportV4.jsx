@@ -343,6 +343,13 @@ export default function ViewportV4(props) {
     } else {
       if (profileSamples?.length) { const out = []; let prev = null; for (const s of profileSamples) { const v = s.z === null ? null : world(s.x, s.y, s.z + lift * 2); if (v && prev) out.push(prev, v); prev = v; } segments(out, '#ff5fcf', 1, true); }
       if (gradeLine3D?.length > 1) segments(polyline(gradeLine3D.map(p => world(p.x, p.y, p.z + lift))), '#ff3b5c', 1, false);
+      const cs = currentStation !== null && currentStation !== undefined ? (sectionLines || []).find(s => Math.abs(s.station - currentStation) < 1e-6) : null;
+      if (cs) { // seção ativa: plano vertical translúcido com contorno ciano
+        const z0 = minZ - (maxZ - minZ) * .15 - 1, z1 = maxZ + (maxZ - minZ) * .25 + 1, q = [world(cs.left.x, cs.left.y, z0), world(cs.right.x, cs.right.y, z0), world(cs.right.x, cs.right.y, z1), world(cs.left.x, cs.left.y, z1)];
+        const pos = new Float32Array(18); [q[0], q[1], q[2], q[0], q[2], q[3]].forEach((v, k) => v.toArray(pos, k * 3));
+        scene.add(new THREE.Mesh(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(pos, 3)), new THREE.MeshBasicMaterial({color: '#00ffd0', transparent: true, opacity: .16, side: THREE.DoubleSide, depthWrite: false})));
+        segments(polyline(q, true), '#00ffd0', 1, false);
+      }
     }
     if (mode === '3D' && Number.isFinite(referenceZ) && presentation.referencePlane && triangles.length) {
       const positions = new Float32Array(points.length * 3);
@@ -361,7 +368,7 @@ export default function ViewportV4(props) {
     r.resize(); r.invalidate();
   }, [props.points, props.triangles, props.mode, props.presentation, props.fitKey, props.contours, props.contourStyle?.visible2D, props.contourStyle?.visible3D,
     plan ? props.constraints : null, plan ? props.visibleIndices : null, plan ? props.layers : null, plan ? props.groupColors : null, plan ? props.boundary : null,
-    plan ? props.alignment : null, plan ? props.sectionLines : null, plan ? props.currentStation : null,
+    plan ? props.alignment : null, props.sectionLines, props.currentStation,
     plan ? null : props.terrain3D, plan ? null : props.designAt, plan ? null : props.profileSamples, plan ? null : props.referenceZ, plan ? null : props.gradeLine3D]);
   // camada de projeto: redesenha só ela quando plataformas/linhas mudam (arraste fluido, sem refazer o terreno)
   useEffect(() => { const r = runtime.current; if (!r?.designGroup) return; drawDesigns(r, props); r.invalidate(); }, [props.designs, props.selectedPlatform, props.selectedLine]);

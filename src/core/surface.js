@@ -39,7 +39,7 @@ export function buildSurface(points,breaklines=[],boundary=[],maxEdge=0){
  return {...mesh,removed:originalCount-mesh.triangles.length};
 }
 export function validateProject(data){
- if(!data||![1,2,3,4,5,6].includes(data.version))throw Error('Versão de projeto não suportada.');
+ if(!data||![1,2,3,4,5,6,7].includes(data.version))throw Error('Versão de projeto não suportada.');
  const points=data.points;validatePoints(points);
  const breaklines=data.breaklines??[],boundary=data.boundary??[],maxEdge=data.maxEdge??0;
  const base=buildSurface(points,breaklines,boundary,maxEdge);

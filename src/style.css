@@ -343,3 +343,15 @@ button.danger:hover{background:#4d2a2d}
 .tc5 .pi-row label{font-size:0}
 .tc5 .pi-row input{width:100%;padding:5px 6px!important}
 .tc5 .line-card .small{margin:0;font-size:11px}
+/* cubagem por estaca */
+.tc5 .cubage{background:var(--surface);border-top:1px solid var(--line);padding:8px 14px 10px;flex-shrink:0}
+.tc5 .cubage-head{display:flex;align-items:center;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-2);margin-bottom:6px}
+.tc5 .cubage-head b{color:var(--text)} .tc5 .cubage .cut{color:var(--cut)} .tc5 .cubage .fill{color:var(--fill)}
+.tc5 .mass-diagram{margin-left:auto;background:var(--bg);border:1px solid var(--line);border-radius:6px}
+.tc5 .mass-diagram .mass{fill:none;stroke:var(--accent);stroke-width:1.6} .tc5 .mass-diagram .zero{stroke:var(--line-strong);stroke-dasharray:3 3} .tc5 .mass-diagram .now{stroke:#00ffd0}
+.tc5 .cubage-scroll{max-height:170px;overflow:auto;border:1px solid var(--line);border-radius:6px}
+.tc5 .cubage table{width:100%;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums}
+.tc5 .cubage th{position:sticky;top:0;background:var(--surface-2);color:var(--text-3);font-weight:600;text-align:right;padding:5px 8px}
+.tc5 .cubage td{text-align:right;padding:4px 8px;border-top:1px solid var(--line);cursor:pointer}
+.tc5 .cubage th:first-child,.tc5 .cubage td:first-child{text-align:left}
+.tc5 .cubage tr.now td{background:#0d3a35}

@@ -18,13 +18,14 @@ import {sampleProfile, profileContext} from './core/profile';
 import {gradeGeometry, gradeElevation, sampleGrade} from './core/grade';
 import {drapeBreakline} from './core/breaklines';
 import {gradePlatform, platformVolumes, designSurfaceFunction, validatePolygon, validatePlatform, meanTerrainInside, clipTerrainMesh, shiftPlatform, applyPlaneSlope, flattenPlatform, isRamp, platformVertexZ, BENCH_DEFAULT} from './core/grading';
-import {pointAtStation, sectionStations, sampleSection, averageEndArea} from './core/sections';
+import {pointAtStation, sectionStations, sampleSection, averageEndArea, cubageTable} from './core/sections';
+import CubageTable from './components/CubageTable';
 import {validateDesignLine, moveVertex, insertVertex, removeVertex} from './core/designLine';
 import {gradeLine, lineVolumes} from './core/lineGrading';
 import {createSnapIndex} from './core/snap';
 import {toDXF, toLandXML, toCSV} from './core/exporters';
 
-const VERSION = '4.0';
+const VERSION = '5.0';
 const demo = Array.from({length: 117}, (_, i) => {
   const x = i % 13 * 15, y = Math.floor(i / 13) * 18;
   return {id: `P${String(i + 1).padStart(3, '0')}`, x: 320000 + x, y: 7420000 + y, z: 100 + 20 * Math.sin(x / 70) * Math.cos(y / 100) + y * .06, description: i % 13 === 0 ? 'BE' : i % 13 === 12 ? 'BD' : 'TN'};
@@ -104,9 +105,11 @@ export default function AppV4() {
   /** Linha e plataforma não ficam selecionadas ao mesmo tempo (as alças de edição são de um objeto só). */
   const setSelectedLine = id => { setSelectedLineRaw(id); if (id) setSelectedPlatformRaw(null); setActiveHandle(null); };
   // durante o arraste, a geometria do rascunho substitui a do documento (cálculo em grade reduzida)
+  const [gradeDraft, setGradeDraft] = useState(null); // greide sendo arrastado no perfil (taludes em tempo real)
   const liveLines = useMemo(() => dragDraft?.kind === 'line' ? designLines.map(l => l.id === dragDraft.id ? {...l, pis: dragDraft.vertices} : l) : designLines, [designLines, dragDraft]);
   const livePlatforms = useMemo(() => dragDraft?.kind === 'platform' ? platforms.map(p => p.id === dragDraft.id ? {...p, polygon: dragDraft.vertices} : p) : platforms, [platforms, dragDraft]);
-  const dragCells = dragDraft ? 12000 : undefined; // grade reduzida no arraste (≤ 30 mil); cálculo completo ao soltar
+  const liveEdit = !!(dragDraft || gradeDraft);
+  const dragCells = liveEdit ? 12000 : undefined; // grade reduzida no arraste (≤ 30 mil); cálculo completo ao soltar
   // no arraste a malha acompanha cada quadro; o volume é refeito a cada ~0,2 s (rascunho amostrado)
   const [volDraft, setVolDraft] = useState(null), volTimer = useRef(null), lastDraft = useRef(null);
   lastDraft.current = dragDraft;
@@ -114,6 +117,12 @@ export default function AppV4() {
     if (!dragDraft) { clearTimeout(volTimer.current); volTimer.current = null; setVolDraft(null); return; }
     if (!volTimer.current) volTimer.current = setTimeout(() => { volTimer.current = null; setVolDraft(lastDraft.current); }, 200);
   }, [dragDraft]);
+  const [volGrade, setVolGrade] = useState(null), gradeTimer = useRef(null), lastGrade = useRef(null);
+  lastGrade.current = gradeDraft;
+  useEffect(() => {
+    if (!gradeDraft) { clearTimeout(gradeTimer.current); gradeTimer.current = null; setVolGrade(null); return; }
+    if (!gradeTimer.current) gradeTimer.current = setTimeout(() => { gradeTimer.current = null; setVolGrade(lastGrade.current); }, 200);
+  }, [gradeDraft]);
   const volDraftEff = dragDraft ? (volDraft || dragDraft) : null;
   const volLines = useMemo(() => volDraftEff?.kind === 'line' ? designLines.map(l => l.id === volDraftEff.id ? {...l, pis: volDraftEff.vertices} : l) : designLines, [designLines, volDraftEff]);
   const volPlatforms = useMemo(() => volDraftEff?.kind === 'platform' ? platforms.map(p => p.id === volDraftEff.id ? {...p, polygon: volDraftEff.vertices} : p) : platforms, [platforms, volDraftEff]);
@@ -132,26 +141,30 @@ export default function AppV4() {
   const referenceZ = referenceDraft.trim() === '' ? NaN : Number(referenceDraft.replace(',', '.'));
   const volume = useMemo(() => Number.isFinite(referenceZ) && mesh.triangles.length ? volumeToPlane(points, mesh.triangles, referenceZ) : null, [points, mesh.triangles, referenceZ]);
   const profile = useMemo(() => { try { return alignment.length > 1 && ctx ? sampleProfile(points, mesh.triangles, alignment, ctx) : null; } catch { return null; } }, [points, mesh.triangles, alignment, ctx]);
-  const gradeGeo = useMemo(() => { try { return gradeGeometry(grade); } catch { return gradeGeometry([]); } }, [grade]);
+  const gradeGeo = useMemo(() => { try { return gradeGeometry(gradeDraft || grade); } catch { return gradeGeometry([]); } }, [grade, gradeDraft]);
+  // greide como função de cota para as linhas em modo "seguir o greide" (ao vivo e amostrado para volumes)
+  const gradeCtx = useMemo(() => alignment.length > 1 && gradeGeo.pvis.length > 1 ? {path: alignment, gradeAt: s => gradeElevation(gradeGeo, s)} : null, [alignment, gradeGeo]);
+  const volGradeGeo = useMemo(() => { if (!gradeDraft) return gradeGeo; try { return gradeGeometry(volGrade || gradeDraft); } catch { return gradeGeo; } }, [gradeDraft, volGrade, gradeGeo]);
+  const volGradeCtx = useMemo(() => volGradeGeo === gradeGeo ? gradeCtx : alignment.length > 1 && volGradeGeo.pvis.length > 1 ? {path: alignment, gradeAt: s => gradeElevation(volGradeGeo, s)} : null, [volGradeGeo, gradeGeo, gradeCtx, alignment]);
   const gradeAt = useCallback(s => gradeGeo.pvis.length > 1 ? gradeElevation(gradeGeo, s) : null, [gradeGeo]);
   const designMeshes = useMemo(() => !elevationAt ? [] : [...livePlatforms.filter(p => p.visible !== false).map(p => {
     try { return {kind: 'platform', platform: p, mesh: gradePlatform(points, mesh.triangles, p, {elevationAt})}; }
     catch (e) { return {kind: 'platform', platform: p, error: e.message}; }
   }), ...liveLines.filter(l => l.visible !== false).map(l => {
-    try { return {kind: 'line', line: l, mesh: gradeLine(points, mesh.triangles, l, {elevationAt})}; }
+    try { return {kind: 'line', line: l, mesh: gradeLine(points, mesh.triangles, l, {elevationAt, gradeCtx})}; }
     catch (e) { return {kind: 'line', line: l, error: e.message}; }
-  })], [points, mesh.triangles, livePlatforms, liveLines, elevationAt]);
+  })], [points, mesh.triangles, livePlatforms, liveLines, elevationAt, gradeCtx]);
   const designVolumes = useMemo(() => {
     const out = new Map(); if (!elevationAt) return out;
     for (const p of volPlatforms) if (p.visible !== false) { try { out.set('p:' + p.id, platformVolumes(points, mesh.triangles, p, {elevationAt, maxCells: dragCells})); } catch { /* erro já mostrado pela malha */ } }
-    for (const l of volLines) if (l.visible !== false) { try { out.set('l:' + l.id, lineVolumes(points, mesh.triangles, l, {elevationAt, maxCells: dragCells})); } catch { /* idem */ } }
+    for (const l of volLines) if (l.visible !== false) { try { out.set('l:' + l.id, lineVolumes(points, mesh.triangles, l, {elevationAt, maxCells: dragCells, gradeCtx: volGradeCtx})); } catch { /* idem */ } }
     return out;
-  }, [points, mesh.triangles, volPlatforms, volLines, elevationAt, dragCells]);
+  }, [points, mesh.triangles, volPlatforms, volLines, elevationAt, dragCells, volGradeCtx]);
   const designs = useMemo(() => designMeshes.map(d => d.error ? d : {...d, volume: d.kind === 'line' ? (d.mesh.base.length ? designVolumes.get('l:' + d.line.id) ?? null : null) : designVolumes.get('p:' + d.platform.id) ?? null}), [designMeshes, designVolumes]);
   const validDesigns = useMemo(() => designs.filter(d => d.mesh), [designs]);
   const meshDesigns = useMemo(() => designMeshes.filter(d => d.mesh), [designMeshes]);
-  const designAt = useMemo(() => elevationAt && validDesigns.length ? designSurfaceFunction(validDesigns.filter(d => d.kind === 'platform').map(d => d.platform), elevationAt, validDesigns.filter(d => d.kind === 'line').map(d => d.line)) : null, [elevationAt, validDesigns]);
-  const frozenDesignAt = useRef(null); if (!dragDraft) frozenDesignAt.current = designAt; // 3D só se refaz ao soltar o arraste
+  const designAt = useMemo(() => elevationAt && validDesigns.length ? designSurfaceFunction(validDesigns.filter(d => d.kind === 'platform').map(d => d.platform), elevationAt, validDesigns.filter(d => d.kind === 'line').map(d => d.line), gradeCtx) : null, [elevationAt, validDesigns, gradeCtx]);
+  const frozenDesignAt = useRef(null); if (!liveEdit) frozenDesignAt.current = designAt; // 3D só se refaz ao soltar o arraste
   const designProfile = useMemo(() => {
     if (!profile || !designAt) return null; const n = 400, out = [];
     for (let k = 0; k <= n; k++) { const s = profile.length * k / n, c = pointAtStation(alignment, s); out.push({station: s, z: c ? designAt(c.x, c.y) : null}); }
@@ -159,15 +172,17 @@ export default function AppV4() {
   }, [profile, designAt, alignment]);
   const stationList = useMemo(() => { try { return profile ? sectionStations(profile.length, sectionSettings.interval, gradeGeo.pvis.map(p => p.station)) : []; } catch { return []; } }, [profile, sectionSettings.interval, gradeGeo]);
   const sectionLines = useMemo(() => stationList.map(s => { const c = pointAtStation(alignment, s); if (!c) return null; const nx = -c.ty, ny = c.tx, h = sectionSettings.halfWidth; return {station: s, left: {x: c.x + nx * h, y: c.y + ny * h}, right: {x: c.x - nx * h, y: c.y - ny * h}}; }).filter(Boolean), [stationList, alignment, sectionSettings.halfWidth]);
-  const sections = useMemo(() => layout !== 'sections' || !profile || !ctx ? [] : stationList.map(s => sampleSection(alignment, s, sectionSettings.halfWidth, {points, triangles: mesh.triangles, designAt, gradeAt, context: ctx})).filter(Boolean), [layout, profile, ctx, stationList, alignment, sectionSettings.halfWidth, points, mesh.triangles, designAt, gradeAt]);
+  const sections = useMemo(() => !['sections', 'profile'].includes(layout) || !profile || !ctx ? [] : stationList.map(s => sampleSection(alignment, s, sectionSettings.halfWidth, {points, triangles: mesh.triangles, designAt, gradeAt, context: ctx})).filter(Boolean), [layout, profile, ctx, stationList, alignment, sectionSettings.halfWidth, points, mesh.triangles, designAt, gradeAt]);
   const sectionTotals = useMemo(() => sections.length > 1 ? averageEndArea(sections) : null, [sections]);
+  const cubage = useMemo(() => sections.length ? cubageTable(sections) : [], [sections]);
+  const pickStation = s => { const i = stationList.findIndex(v => Math.abs(v - s) < 1e-6); if (i >= 0) setSectionIndex(i); };
   const currentStation = stationList.length ? stationList[Math.min(sectionIndex, stationList.length - 1)] : null;
   const terrain3D = useMemo(() => {
-    if (!designAt || dragDraft) return null; // no arraste, o recorte do terreno 3D espera soltar
+    if (!designAt || liveEdit) return null; // no arraste, o recorte do terreno 3D espera soltar
     const bounds = validDesigns.filter(d => d.mesh.vertices.length).map(d => { const xs = d.mesh.vertices.map(v => v.x), ys = d.mesh.vertices.map(v => v.y); return {minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys)}; });
     const span = Math.max(...bounds.map(b => Math.max(b.maxX - b.minX, b.maxY - b.minY)), 1);
     return clipTerrainMesh(points, mesh.triangles, (x, y) => designAt(x, y) !== null, {bounds, minEdge: span / 120});
-  }, [designAt, validDesigns, points, mesh.triangles, dragDraft]);
+  }, [designAt, validDesigns, points, mesh.triangles, liveEdit]);
   const gradeLine3D = useMemo(() => {
     if (!profile || gradeGeo.pvis.length < 2) return null;
     return sampleGrade(gradeGeo, Math.max(profile.length / 300, 0.1)).map(p => { const c = pointAtStation(alignment, p.station); return c && p.z !== null ? {x: c.x, y: c.y, z: p.z} : null; }).filter(Boolean);
@@ -247,9 +262,14 @@ export default function AppV4() {
     catch (e) { setMessage(e.message); }
   }, [busy, points, mesh, doc, tool, commit]);
   const onPlanClick = useCallback(w => {
+    if (layers.sections && sectionLines.length) { // clique perto de uma linha de seção: vira a estaca ativa
+      const tol = Math.max(1, sectionSettings.interval * .2); let best = null, bd = tol;
+      sectionLines.forEach((sl, i) => { const dx = sl.right.x - sl.left.x, dy = sl.right.y - sl.left.y, t = Math.max(0, Math.min(1, ((w.x - sl.left.x) * dx + (w.y - sl.left.y) * dy) / (dx * dx + dy * dy || 1))), d = Math.hypot(w.x - sl.left.x - t * dx, w.y - sl.left.y - t * dy); if (d < bd) { bd = d; best = sl; } });
+      if (best) { const i = stationList.findIndex(v => Math.abs(v - best.station) < 1e-6); if (i >= 0) { setSectionIndex(i); setMessage(`Estaca ativa ${(best.station / 1000 | 0)}+${(best.station % 1000).toFixed(2).padStart(6, '0')}: perfil, seções e 3D sincronizados.`); return; } }
+    }
     const hit = platforms.find(p => p.polygon.length > 2 && insideXY(w.x, w.y, p.polygon));
     if (hit) { setSelectedPlatform(hit.id); setSideTab('design'); setMessage(`${hit.name} selecionada. Ajuste cota e taludes no painel Projeto.`); }
-  }, [platforms]);
+  }, [platforms, layers.sections, sectionLines, sectionSettings.interval, stationList]);
   const finishRef = useRef();
   async function finish({closed = false} = {}) {
     if (busy) return;
@@ -348,9 +368,9 @@ export default function AppV4() {
     try { updatePlatform(p.id, applyPlaneSlope(p, {slope, azimuth}), `${p.name}: rampa de ${slope}% descendo para ${azimuth}° aplicada. Ajuste cotas de vértices na tabela, se precisar.`); } catch (e) { setMessage(e.message); }
   }
   function saveProject() {
-    const data = {version: 6, points, triangles: mesh.triangles, breaklines, boundary, maxEdge, alignment, grade, platforms, designLines, labelStyle: style, groupColors, contourStyle, referenceZ: Number.isFinite(referenceZ) ? referenceZ : null, sectionSettings};
+    const data = {version: 7, points, triangles: mesh.triangles, breaklines, boundary, maxEdge, alignment, grade, platforms, designLines, labelStyle: style, groupColors, contourStyle, referenceZ: Number.isFinite(referenceZ) ? referenceZ : null, sectionSettings};
     downloadText('terra-cad-v4.json', JSON.stringify(data, null, 2), 'application/json');
-    setMessage('Projeto exportado (JSON v6). Guarde o arquivo no seu computador e abra-o para continuar.');
+    setMessage('Projeto exportado (JSON v7). Guarde o arquivo no seu computador e abra-o para continuar.');
   }
   async function openProject(e) {
     const file = e.target.files[0]; e.target.value = ''; if (!file) return;
@@ -426,14 +446,14 @@ export default function AppV4() {
   const setLabel = (k, v) => { setPreset('custom'); setStyle(s => ({...s, [k]: v})); };
   const common = {points, triangles: mesh.triangles, terrain3D, constraints: mesh.constraints, style, tool, selected, pickDraft, visibleIndices, layers, presentation, groupColors, boundary, fitKey, snap, snapModes, snapAperture, snapIndex, crosshair, zoomSensitivity,
     onPick, onEdge, onPlanClick, onNotice: setMessage, contours, contourStyle, alignment, profileSamples: profile?.samples, referenceZ, elevationAt, designAt: frozenDesignAt.current, designs: meshDesigns, selectedPlatform, selectedLine, handles, segments: handleSegments, activeHandle, onHandleDrag, onSegmentInsert, onHandleRemove,
-    sectionLines: layers.sections && (layout === 'sections' || profile) ? sectionLines : null, currentStation: layout === 'sections' ? currentStation : null, gradeLine3D};
+    sectionLines: layers.sections && (layout === 'sections' || profile) ? sectionLines : null, currentStation: profile ? currentStation : null, gradeLine3D};
   const panel = mode => <div key={mode} className={`viewport-panel ${mode === '2D' ? 'plan-panel' : 'model-panel'}`} data-testid={`panel-${mode}`}>
     <div className="panel-heading"><span>{mode === '2D' ? 'Planta' : 'Modelo 3D'}</span><small>{mode === '2D' ? (snap ? 'Atração F3 ligada' : 'Atração F3 desligada') : 'Terreno + projeto'}</small></div>
     <Viewport {...common} mode={mode}/>{mode === '2D' && <Compass/>}
   </div>;
   const picking = ['boundary', 'breakline', 'profile', 'platform', 'line'].includes(tool), pickCount = tool === 'boundary' ? selected.length : pickDraft.length, minPick = ['boundary', 'platform'].includes(tool) ? 3 : 2;
-  const editor = profile && <ProfileEditor profile={profile} grade={grade} onGradeChange={(g, text) => commit({...doc, grade: g}, text)} designProfile={designProfile} referenceZ={referenceZ} precision={style.precision}
-    sectionStations={stationList} currentStation={layout === 'sections' ? currentStation : null} onStation={s => { const i = stationList.reduce((b, v, k) => Math.abs(v - s) < Math.abs(stationList[b] - s) ? k : b, 0); setSectionIndex(i); }}
+  const editor = profile && <ProfileEditor profile={profile} grade={grade} onGradeDraft={setGradeDraft} onGradeChange={(g, text) => commit({...doc, grade: g}, text)} designProfile={designProfile} referenceZ={referenceZ} precision={style.precision}
+    sectionStations={stationList} currentStation={currentStation} onStation={s => { const i = stationList.reduce((b, v, k) => Math.abs(v - s) < Math.abs(stationList[b] - s) ? k : b, 0); setSectionIndex(i); }}
     onRemove={() => commit({...doc, alignment: [], grade: []}, 'Eixo e greide removidos.')} onNotice={setMessage} zoomSensitivity={zoomSensitivity}
     height={layout === 'profile' ? Math.max(360, viewportH - (grade.length ? 360 : 190)) : 210} showTable={layout === 'profile'}/>;
   const selPlat = platforms.find(p => p.id === selectedPlatform);
@@ -600,6 +620,7 @@ export default function AppV4() {
         <button onClick={() => chooseTool('orbit')}>Cancelar (Esc)</button></>
         : <span>{tool === 'swap' ? 'Clique na diagonal interna a inverter na planta.' : tool === 'delete' ? 'Clique na aresta para remover as faces adjacentes.' : 'Roda: zoom no cursor · arraste: mover / orbitar · clique numa plataforma para selecioná-la'}</span>}</div>}
       {layout === 'profile' && editor}
+      {['profile', 'sections'].includes(layout) && <CubageTable rows={cubage} current={currentStation} onStation={pickStation}/>}
       {layout === 'sections' && <SectionViewer sections={sections} index={Math.min(sectionIndex, Math.max(0, sections.length - 1))} onIndex={setSectionIndex} totals={sectionTotals} halfWidth={sectionSettings.halfWidth} precision={style.precision} equalScale={equalScale} onEqualScale={setEqualScale}/>}
       {['2D', 'split', '3D'].includes(layout) && showProfileDock && editor}
       {!mesh.triangles.length && <div className="empty-warning">Nenhum triângulo passou pelos filtros. Aumente o limite de aresta ou revise o contorno.</div>}
