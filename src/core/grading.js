@@ -10,6 +10,8 @@
 // sobrepõe taludes em cantos reentrantes e gera cantos convexos arredondados.
 import cdt2d from 'cdt2d';
 import {triangleLocator} from './profile.js';
+import {BENCH_DEFAULT, validateBenches, slopeRise, slopeReach, slopeBreaks, castSlopes, gridVolumes, meshDefaults} from './slopes.js';
+export {BENCH_DEFAULT, validateBenches, slopeRise, slopeReach, slopeBreaks};
 
 const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 export function signedArea(poly) { let s = 0; for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; s += a.x * b.y - b.x * a.y; } return s / 2; }
@@ -48,20 +50,6 @@ export function validatePolygon(poly) {
   return poly.map(p => Number.isFinite(p.z) ? {x: p.x, y: p.y, z: p.z} : {x: p.x, y: p.y});
 }
 
-export const BENCH_DEFAULT = Object.freeze({enabled: false, height: 10, width: 5, apply: 'cut'});
-const BENCH_APPLY = ['cut', 'fill', 'both'];
-
-/** Bancadas (bermas) do talude: altura vertical entre bermas e largura horizontal da berma. */
-export function validateBenches(b) {
-  if (b === undefined || b === null) return {...BENCH_DEFAULT};
-  if (typeof b !== 'object') throw Error('Configuração de bermas inválida.');
-  const height = Number(b.height ?? BENCH_DEFAULT.height), width = Number(b.width ?? BENCH_DEFAULT.width), apply = b.apply ?? BENCH_DEFAULT.apply;
-  if (!(height > 0 && height <= 1000)) throw Error('Altura da bancada deve ser maior que zero.');
-  if (!(width >= 0 && width <= 1000)) throw Error('Largura da berma não pode ser negativa.');
-  if (!BENCH_APPLY.includes(apply)) throw Error('Bermas: escolha corte, aterro ou ambos.');
-  return {enabled: !!b.enabled, height, width, apply};
-}
-
 export function validatePlatform(p) {
   if (!p || typeof p !== 'object') throw Error('Plataforma inválida.');
   const polygon = validatePolygon(p.polygon);
@@ -76,29 +64,6 @@ export const platformVertexZ = p => p.polygon.map(v => Number.isFinite(v.z) ? v.
 /** true quando a plataforma tem cotas diferentes entre os vértices (rampa). */
 export const isRamp = p => { const z = platformVertexZ(p); return z.some(v => Math.abs(v - z[0]) > 1e-9); };
 
-/** Subida vertical do talude a uma distância horizontal d (com ou sem bancadas). */
-export function slopeRise(d, H, bench = null) {
-  if (!(d > 0)) return 0;
-  if (!bench) return d / H;
-  const run = bench.height * H, period = run + bench.width;
-  const k = Math.floor(d / period), r = d - k * period;
-  return k * bench.height + Math.min(r, run) / H;
-}
-/** Distância horizontal máxima para vencer um desnível (limite superior, para recortes de busca). */
-export function slopeReach(rise, H, bench = null) {
-  if (!(rise > 0)) return 0;
-  return rise * H + (bench ? Math.ceil(rise / bench.height) * bench.width : 0);
-}
-/** Distâncias (em planta) das quebras do talude com bancadas: crista da berma e pé da bancada seguinte. */
-export function slopeBreaks(H, bench, maxD) {
-  if (!bench || !(maxD > 0)) return [];
-  const run = bench.height * H, period = run + bench.width, out = [];
-  for (let k = 0; k * period < maxD && out.length < 2000; k++) {
-    if (k * period + run < maxD) out.push({d: k * period + run, kind: 'crest', k});
-    if (bench.width > 0 && (k + 1) * period < maxD) out.push({d: (k + 1) * period, kind: 'toe', k});
-  }
-  return out;
-}
 const benchFor = (p, mode) => p.benches?.enabled && (p.benches.apply === 'both' || p.benches.apply === mode) ? p.benches : null;
 
 // Geometria pré-calculada da plataforma (cache por objeto)
@@ -187,101 +152,11 @@ function ccwWithZ(poly, zs) {
  */
 export function gradePlatform(points, triangles, platform, {spacing, maxDistance, elevationAt} = {}) {
   const p = validatePlatform(platform), c = compile(p), poly = ccwWithZ(p.polygon, c.zs);
-  const terrainAt = elevationAt || triangleLocator(points, triangles);
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const q of points) { minX = Math.min(minX, q.x); maxX = Math.max(maxX, q.x); minY = Math.min(minY, q.y); maxY = Math.max(maxY, q.y); }
-  const span = Math.max(maxX - minX, maxY - minY, 1);
   let perimeter = 0; for (let i = 0; i < poly.length; i++) perimeter += Math.hypot(poly[(i + 1) % poly.length].x - poly[i].x, poly[(i + 1) % poly.length].y - poly[i].y);
-  spacing = spacing > 0 ? spacing : Math.max(perimeter / 240, span / 400, 1e-3);
-  maxDistance = maxDistance > 0 ? maxDistance : span * 2;
-  const warnings = new Set();
-  // 1. Amostras do contorno (com a cota interpolada da borda) + raios (leque nos cantos convexos)
-  const base = [], rays = [];
-  const n = poly.length;
-  const normal = i => { const a = poly[i], b = poly[(i + 1) % n], l = Math.hypot(b.x - a.x, b.y - a.y); return {x: (b.y - a.y) / l, y: -(b.x - a.x) / l}; };
-  for (let i = 0; i < n; i++) {
-    const a = poly[i], b = poly[(i + 1) % n], prev = poly[(i - 1 + n) % n];
-    const np = normal((i - 1 + n) % n), nn = normal(i);
-    const bi = base.push({x: a.x, y: a.y, z: a.z}) - 1;
-    const turn = cross(prev, a, b);
-    if (turn > 1e-12) {
-      const a0 = Math.atan2(np.y, np.x); let sweep = Math.atan2(nn.y, nn.x) - a0;
-      while (sweep <= 0) sweep += 2 * Math.PI; while (sweep > Math.PI) sweep -= 2 * Math.PI;
-      const steps = Math.max(1, Math.ceil(sweep / (Math.PI / 12)));
-      for (let k = 0; k <= steps; k++) { const ang = a0 + sweep * k / steps; rays.push({base: bi, dx: Math.cos(ang), dy: Math.sin(ang)}); }
-    } else if (turn < -1e-12) {
-      const bx = np.x + nn.x, by = np.y + nn.y, l = Math.hypot(bx, by) || 1; rays.push({base: bi, dx: bx / l, dy: by / l});
-    } else rays.push({base: bi, dx: nn.x, dy: nn.y});
-    const len = Math.hypot(b.x - a.x, b.y - a.y), m = Math.max(1, Math.ceil(len / spacing));
-    for (let k = 1; k < m; k++) { const t = k / m, j = base.push({x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y), z: a.z + t * (b.z - a.z)}) - 1; rays.push({base: j, dx: nn.x, dy: nn.y}); }
-  }
-  // 2. Daylight por raio, com o mesmo modelo usado no volume; vértices nas quebras das bermas
-  let maxCut = 0, maxFill = 0;
-  const step = spacing / 2;
-  const vertices = base.slice(), daylight = [], hatch = [];
-  for (const r of rays) {
-    const b = base[r.base], T0 = terrainAt(b.x, b.y);
-    r.chain = [r.base]; r.mode = 'none'; r.tags = [null];
-    if (T0 === null) { warnings.add('Parte do contorno da plataforma está fora do terreno.'); daylight.push(b); continue; }
-    if (Math.abs(T0 - b.z) <= 1e-9) { daylight.push(b); continue; }
-    const mode = T0 > b.z ? 'cut' : 'fill';
-    if (mode === 'cut') maxCut = Math.max(maxCut, T0 - b.z); else maxFill = Math.max(maxFill, b.z - T0);
-    const H = mode === 'cut' ? p.cutSlope : p.fillSlope, sign = mode === 'cut' ? 1 : -1, bench = mode === 'cut' ? c.benchCut : c.benchFill;
-    const at = t => { const x = b.x + r.dx * t, y = b.y + r.dy * t, T = terrainAt(x, y); if (T === null) return null; const q = c.nearest(x, y), z = q.z + sign * slopeRise(q.d, H, bench); return {x, y, z, f: sign * (T - z), d: q.d}; };
-    let lo = 0, prev = {x: b.x, y: b.y, z: b.z, d: 0}, endT = 0, status = 'far';
-    for (let t = step; t <= maxDistance + 1e-9; t += step) {
-      const cur = at(t);
-      if (!cur) { status = 'edge'; endT = lo; break; }
-      if (cur.f <= 0) {
-        let a = lo, cc = t;
-        for (let k = 0; k < 40; k++) { const mid = (a + cc) / 2, v = at(mid); if (v && v.f > 0) a = mid; else cc = mid; }
-        prev = at(cc) || cur; endT = cc; status = 'ok'; break;
-      }
-      lo = t; prev = cur; endT = t;
-    }
-    if (status === 'edge') warnings.add('Talude atinge o limite da superfície antes de encontrar o terreno.');
-    if (status === 'far') warnings.add('Talude não encontrou o terreno dentro da distância máxima.');
-    r.mode = mode;
-    // quebras das bermas ao longo do raio (d cresce ~linearmente com t)
-    const ratio = endT > 0 && prev.d > 0 ? endT / prev.d : 1;
-    for (const br of slopeBreaks(H, bench, prev.d - 1e-6)) {
-      const v = at(br.d * ratio); if (!v || v.f <= 0) continue;
-      r.chain.push(vertices.push({x: v.x, y: v.y, z: v.z}) - 1); r.tags.push(`${br.kind}${br.k}`);
-    }
-    const end = {x: prev.x, y: prev.y, z: prev.z};
-    r.chain.push(vertices.push(end) - 1); r.tags.push('end'); daylight.push(end);
-  }
-  rays.forEach((r, k) => { if (k % 3 === 0 && r.mode !== 'none') hatch.push([base[r.base], vertices[r.chain.at(-1)], r.mode]); });
-  // linhas das bermas (crista e pé), ligando raios consecutivos que têm a mesma quebra
-  const benchLines = [];
-  if (c.benchCut || c.benchFill) {
-    const open = new Map();
-    rays.forEach(r => {
-      const here = new Set();
-      r.tags.forEach((tag, i) => { if (!tag || tag === 'end') return; const key = r.mode + tag; here.add(key); let line = open.get(key); if (!line) { line = []; open.set(key, line); benchLines.push(line); } line.push(vertices[r.chain[i]]); });
-      for (const key of [...open.keys()]) if (!here.has(key)) open.delete(key);
-    });
-    for (let i = benchLines.length - 1; i >= 0; i--) if (benchLines[i].length < 2) benchLines.splice(i, 1);
-  }
-  // 3. Triangulação: plataforma (CDT restrita ao contorno) + faixas de talude entre raios (costura)
-  const tris = [], types = [];
-  const o = base[0], loop = base.map((_, i) => [i, (i + 1) % base.length]);
-  const flat = cdt2d(base.map(q => [q.x - o.x, q.y - o.y]), loop, {delaunay: true, exterior: false});
-  flat.forEach(t => { tris.push(t); types.push('platform'); });
-  const area2 = (a, b, cc) => Math.abs(cross(vertices[a], vertices[b], vertices[cc]));
-  const typeOf = (r1, r2) => r1.mode === r2.mode ? r1.mode : r1.mode === 'none' ? r2.mode : r2.mode === 'none' ? r1.mode : 'mixed';
-  const add = (t, r1, r2) => { if (t[0] === t[1] || t[1] === t[2] || t[0] === t[2] || area2(...t) < 1e-10) return; tris.push(t); types.push(typeOf(r1, r2)); };
-  const param = r => { const L = r.chain.length - 1; return r.chain.map((_, i) => L ? i / L : 0); };
-  for (let k = 0; k < rays.length; k++) {
-    const r1 = rays[k], r2 = rays[(k + 1) % rays.length], A = r1.chain, B = r2.chain, sa = param(r1), sb = param(r2);
-    let i = 0, j = 0;
-    if (r1.base !== r2.base) { add([A[0], B[0], B[Math.min(1, B.length - 1)]], r1, r2); if (B.length > 1) j = 1; }
-    while (i < A.length - 1 || j < B.length - 1) {
-      const advA = j >= B.length - 1 || (i < A.length - 1 && sa[i + 1] <= sb[j + 1]);
-      if (advA) { add([A[i], B[j], A[i + 1]], r1, r2); i++; } else { add([A[i], B[j], B[j + 1]], r1, r2); j++; }
-    }
-  }
-  return {vertices, triangles: tris, types, daylight, hatch, benchLines, warnings: [...warnings], stats: {maxCut, maxFill, rays: rays.length}};
+  const d = meshDefaults(points, perimeter);
+  return castSlopes(poly, {closed: true, side: 'outside', terrainAt: elevationAt || triangleLocator(points, triangles), nearest: c.nearest,
+    ruleFor: mode => mode === 'cut' ? {H: p.cutSlope, bench: c.benchCut} : {H: p.fillSlope, bench: c.benchFill},
+    spacing: spacing > 0 ? spacing : d.spacing, maxDistance: maxDistance > 0 ? maxDistance : d.maxDistance});
 }
 
 /**
@@ -298,25 +173,7 @@ export function platformVolumes(points, triangles, platform, {cell, maxCells = 2
   let minX = Math.min(...poly.map(q => q.x)) - reach, maxX = Math.max(...poly.map(q => q.x)) + reach;
   let minY = Math.min(...poly.map(q => q.y)) - reach, maxY = Math.max(...poly.map(q => q.y)) + reach;
   minX = Math.max(minX, tminX); maxX = Math.min(maxX, tmaxX); minY = Math.max(minY, tminY); maxY = Math.min(maxY, tmaxY);
-  const out = {cut: 0, fill: 0, net: 0, areaCut: 0, areaFill: 0, footprint: 0, cell: 0, outside: 0};
-  if (!(maxX > minX && maxY > minY)) return out;
-  let h = cell > 0 ? cell : Math.sqrt((maxX - minX) * (maxY - minY) / maxCells);
-  h = Math.max(h, Math.sqrt((maxX - minX) * (maxY - minY) / maxCells));
-  const nx = Math.ceil((maxX - minX) / h), ny = Math.ceil((maxY - minY) / h), A = h * h;
-  out.cell = h;
-  for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
-    const x = minX + (i + .5) * h, y = minY + (j + .5) * h;
-    const T = terrainAt(x, y);
-    const inside = insidePolygonXY(x, y, poly);
-    if (T === null) { if (inside) out.outside += A; continue; }
-    const D = designElevationAt(p, x, y, T);
-    if (D === null) continue;
-    out.footprint += A;
-    const diff = T - D;
-    if (diff > 0) { out.cut += diff * A; out.areaCut += A; } else if (diff < 0) { out.fill -= diff * A; out.areaFill += A; }
-  }
-  out.net = out.cut - out.fill;
-  return out;
+  return gridVolumes((x, y, T) => designElevationAt(p, x, y, T), terrainAt, {minX, minY, maxX, maxY}, {cell, maxCells, inside: (x, y) => insidePolygonXY(x, y, poly)});
 }
 
 /** Cota média do terreno dentro do polígono (sugestão inicial da plataforma). */
