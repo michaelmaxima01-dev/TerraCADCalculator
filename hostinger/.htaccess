@@ -1,0 +1,28 @@
+# Terra CAD — publicação na Hostinger (Apache/LiteSpeed)
+# Tudo passa pelo gate.php (confere a licença), exceto a tela de login e a API de contas.
+Options -Indexes
+DirectoryIndex gate.php
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # força HTTPS (o cookie de sessão é "Secure")
+  RewriteCond %{HTTPS} off
+  RewriteCond %{HTTP:X-Forwarded-Proto} !https
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+  # liberados sem sessão: login, cliente de autenticação, API e ícone
+  RewriteRule ^(login\.html|login\.js|login\.css|auth-client\.js|favicon\.svg|LICENSE\.txt)$ - [L]
+  RewriteRule ^api/auth\.php$ - [L]
+  RewriteRule ^api/ - [F,L]
+  # o resto (app/, index, assets) vai para o porteiro
+  RewriteCond %{REQUEST_URI} !gate\.php$
+  RewriteRule ^ gate.php [L,QSA]
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "same-origin"
+  Header always set X-Frame-Options "SAMEORIGIN"
+</IfModule>
+
+AddType application/wasm .wasm
+AddType text/javascript .js .mjs

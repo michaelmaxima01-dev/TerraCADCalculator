@@ -21,6 +21,10 @@ A entrada atual é src/v4.jsx e src/AppV4.jsx, com renderer src/components/Viewp
 
 O exemplo exemplos/levantamento-concavo.csv permite testar a triangulação em L. Importe e desenhe o contorno A → B → C → D → E → F; concluir recorta a área vazia entre os dois braços. A ordem dos pontos no arquivo não é inferida automaticamente como contorno.
 
+## Publicar online (Hostinger)
+
+`npm run build:hostinger` gera `pacote-hostinger/terracad-hostinger.zip` com login, licenças com validade e painel de usuários (PHP, sem banco de dados). Passo a passo em **PUBLICAR-HOSTINGER.md**.
+
 ## Importar DWG e DXF
 
 Em **Terreno → Importar pontos ou desenho**, escolha um `.dwg` (AutoCAD R13 a 2018+) ou `.dxf` (ASCII). O Terra CAD lista o que encontrou com cota — pontos, blocos de ponto (atributos PONTO/DESC/COTA), polilinhas 3D/curvas de nível, faces 3D — por origem e camada, já marcando a região principal. Ajuste o espaçamento mínimo nos vértices das curvas e importe. Planimetria em Z = 0 é ignorada.

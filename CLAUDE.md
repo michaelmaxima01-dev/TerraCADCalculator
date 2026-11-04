@@ -11,13 +11,14 @@ As regras do projeto estão em **AGENTS.md** (mesmo conteúdo usado pelo OpenCod
 - Linha de base verificada em 04/11/2026: `npm ci` ok, `npm test` 44/44, `npm run build` ok, app abre no Chromium sem erros no console.
 - Importação DWG/DXF (04/11/2026): `npm test` 56/56; DWG real da Mina Cutia (AutoCAD 2018, 4,9 MB) lido em ~3 s no navegador.
 
-## Futuro: publicação na Hostinger
-O app é 100% estático (sem backend): o que vai para o servidor é só o conteúdo de `dist/`.
-- Hospedagem compartilhada: enviar `dist/*` para `public_html/` (ou subdomínio). `serve.mjs` não é usado lá.
-- Se publicar numa **subpasta** (ex.: `dominio.com/terracad/`), definir `base` no `vite.config.js` (`'./'` ou `'/terracad/'`); hoje os assets usam caminho absoluto `/assets/`.
+## Publicação na Hostinger (online, sem banco de dados)
+Guia completo em `PUBLICAR-HOSTINGER.md`. `npm run build:hostinger` gera `pacote-hostinger/terracad-hostinger.zip` (extrair em `public_html`).
+- O app continua rodando no navegador; projetos ficam no PC do usuário (Salvar/Abrir JSON). O servidor só tem PHP de contas/licenças (`hostinger/api/auth.php`, dados em `api/data/*.json`) e o porteiro `gate.php`.
+- Sem senha padrão: o primeiro acesso usa o código de `api/data/codigo-instalacao.txt`. Nunca versionar `api/data/`.
+- `base: './'` no build online: funciona na raiz ou em subpasta.
 - Conferir que o servidor entrega `.js` como `text/javascript` (o Web Worker depende disso) e `.wasm` como `application/wasm` (leitor de DWG); usar HTTPS. Na Hostinger (Apache/LiteSpeed), se preciso: `.htaccess` com `AddType application/wasm .wasm`.
 - Licença GPL-3.0-or-later: ao publicar, disponibilizar o código-fonte (ex.: link para o repositório na interface).
-- Não introduzir dependência de servidor (APIs, banco, login) sem decisão explícita do usuário; se vier, planejar à parte (Hostinger VPS/Node).
+- Não introduzir banco de dados nem guardar projetos no servidor (decisão do usuário em 04/11/2026). Login/licenças: só pela camada PHP existente.
 - Arquivos do usuário (CSV/JSON) são processados apenas no navegador — manter assim.
 
 ## Fluxo de trabalho

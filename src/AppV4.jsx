@@ -5,6 +5,7 @@ import ProfileEditor from './components/ProfileEditor';
 import SectionViewer from './components/SectionViewer';
 import CadImportDialog from './components/CadImportDialog';
 import Icon from './components/Icons';
+import {useLicense, AccountMenu, LicenseBanner, LockScreen, AdminPanel} from './auth/Account';
 import {pointGroups, upsertPoint} from './core/points';
 import {editEdge} from './core/tin';
 import {buildSurface} from './core/surface';
@@ -93,6 +94,7 @@ export default function AppV4() {
   const [selectedPlatform, setSelectedPlatform] = useState(null), [sectionSettings, setSectionSettings] = useState({interval: 20, halfWidth: 30}), [sectionIndex, setSectionIndex] = useState(0), [equalScale, setEqualScale] = useState(false);
   const [viewportH, setViewportH] = useState(() => typeof window === 'undefined' ? 900 : window.innerHeight);
   useEffect(() => { const r = () => setViewportH(window.innerHeight); window.addEventListener('resize', r); return () => window.removeEventListener('resize', r); }, []);
+  const license = useLicense(), [adminOpen, setAdminOpen] = useState(false);
   const {run, busy} = useGeometry(); const pointFile = useRef(), projectFile = useRef();
   const {points, mesh, breaklines, boundary, maxEdge, alignment, grade, platforms} = doc;
 
@@ -357,6 +359,7 @@ export default function AppV4() {
         <button className="icon-btn" disabled={busy} onClick={() => projectFile.current.click()} title="Abrir projeto (Ctrl+O)" aria-label="Abrir projeto"><Icon name="open"/><span>Abrir</span></button>
         <input hidden type="file" accept=".json" ref={projectFile} onChange={openProject}/>
         <button disabled={busy} className="primary icon-btn" onClick={saveProject} title="Salvar projeto (Ctrl+S)"><Icon name="save"/><span>Salvar</span></button>
+        {license && <AccountMenu license={license} onAdmin={() => setAdminOpen(true)}/>}
         <button className={`icon-btn ${inspectorOpen ? 'active' : ''}`} onClick={() => setInspectorOpen(v => !v)} title={inspectorOpen ? 'Recolher painel de propriedades' : 'Abrir painel de propriedades'} aria-label="Painel de propriedades" aria-expanded={inspectorOpen}><Icon name="panel"/></button>
       </div>
     </header>
@@ -493,6 +496,7 @@ export default function AppV4() {
       </>}
     </fieldset></aside>
     <main>
+      <LicenseBanner license={license}/>
       {(layout === 'split' || (profile && ['2D', 'split', '3D'].includes(layout))) && <div className="stage-bar">
         {layout === 'split' && <label className="split-control">Divisão<input aria-label="Divisão das duas vistas" type="range" min="30" max="70" value={splitRatio} onChange={e => setSplitRatio(+e.target.value)}/></label>}
         {profile && ['2D', 'split', '3D'].includes(layout) && <label className="check inline"><input type="checkbox" checked={showProfileDock} onChange={e => setShowProfileDock(e.target.checked)}/>Perfil acoplado</label>}</div>}
@@ -512,6 +516,8 @@ export default function AppV4() {
       {showTable && <div className="table-wrap"><table><thead><tr>{['PONTO', 'ESTE (X)', 'NORTE (Y)', 'COTA (Z)', 'DESCRIÇÃO'].map(t => <th key={t}>{t}</th>)}</tr></thead><tbody>{visibleIndices.slice(0, 100).map(i => points[i]).map(p => <tr key={p.id}><td>{p.id}</td><td>{p.x.toFixed(3)}</td><td>{p.y.toFixed(3)}</td><td>{p.z.toFixed(style.precision)}</td><td>{p.description || '—'}</td></tr>)}</tbody></table></div>}</>}
       {errors.length > 0 && <details className="errors"><summary>{errors.length} linhas rejeitadas</summary>{errors.map((e, i) => <p key={i}>Linha {e.line}: {e.message}</p>)}</details>}
     </main></div>
+    {license && <LockScreen license={license} onSave={saveProject}/>}
+    {license && adminOpen && <AdminPanel license={license} onClose={() => setAdminOpen(false)} onNotice={setMessage}/>}
     {cadImport && <CadImportDialog data={cadImport} onCancel={() => { setCadImport(null); setMessage('Importação do desenho cancelada.'); }} onConfirm={importCadPoints}/>}
     <footer className="statusbar"><span role="status" className="status-message"><i className={`live ${busy ? 'busy' : ''}`}/>{busy ? 'Calculando…' : message}</span><span className="footer-right">{selPlat && <span>{selPlat.name}</span>}<span className={snap ? 'on' : ''}>Atração {snap ? 'ON' : 'OFF'}</span><span>TIN 2.5D</span><span>v{VERSION}</span></span></footer>
   </div>;

@@ -8,7 +8,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "test": "node --test",
-    "start": "node serve.mjs"
+    "start": "node serve.mjs",
+    "build:hostinger": "vite build --mode hostinger --base ./ --outDir dist-hostinger && node scripts/pacote-hostinger.mjs"
   },
   "dependencies": {
     "@mlightcad/libredwg-web": "0.8.3",

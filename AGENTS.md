@@ -10,6 +10,7 @@ Versão atual: **4.0** (com rampas, bermas, DWG/DXF e nova interface; projeto JS
 - `npm test` — `node --test` (65 testes do núcleo; devem continuar passando)
 - `npm run build` — gera `dist/`
 - `node serve.mjs` — servidor de uso (somente módulos nativos), serve `dist/` em http://127.0.0.1:4173
+- `npm run build:hostinger` — versão online com login (`--mode hostinger`, `VITE_TERRACAD_AUTH=1`, `base ./`) em `dist-hostinger/` e pacote `pacote-hostinger/terracad-hostinger.zip` (guia: `PUBLICAR-HOSTINGER.md`)
 
 ## Stack
 React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/style.css`) · Three.js 0.180 (`three/addons/controls/OrbitControls.js`) · `cdt2d` · `@mlightcad/libredwg-web` 0.8.3 (LibreDWG em WebAssembly, leitura de DWG) · Web Worker em módulo ES (`worker.format: 'es'`) para importação/triangulação. JavaScript (sem TypeScript). JSX clássico: todo componente precisa de `import React`.
@@ -42,6 +43,9 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 | `src/core/snap.js` | Índice de atração: nó/vértice > ponto médio > mais próximo |
 | `src/core/exporters.js` | DXF R12 (camadas `TC_*`), LandXML 1.2 (multi-superfície), CSV |
 | `src/core/geometry.worker.js` | Worker: import, superfície, validação de projeto, leitura CAD (`cad`) |
+| `hostinger/` | Arquivos do servidor: `.htaccess`, `gate.php` (porteiro: confere a sessão e entrega `app/`), `api/auth.php` (contas/licenças em `api/data/*.json`, sem banco; primeiro acesso por código de instalação), `login.html/js/css` |
+| `src/auth/` | `auth-client.js` (cliente da API, também copiado para o pacote) e `Account.jsx` (menu da conta, aviso de vencimento, tela de acesso encerrado, painel de usuários) — ativos só com `VITE_TERRACAD_AUTH=1` |
+| `scripts/` | `pacote-hostinger.mjs` (monta pasta, `.gz` e zip sem dependências), `hostinger-local-router.php` (teste com `php -S`) |
 | `tests/*.test.js` | `core`, `surface`, `v3`, `v4`, `cad` (fixture `tests/fixtures/blocos.dxf`), `v5` (bermas por Pappus, rampas) |
 | `AppV2/V3`, `ViewportV2/V3`, `ProfileChart`, `main.jsx`, `Viewport.jsx` | Versões anteriores preservadas como referência, **fora da entrada** — não editar sem pedido |
 
