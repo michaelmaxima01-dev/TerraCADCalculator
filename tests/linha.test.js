@@ -80,3 +80,65 @@ test('linha fechada: estaca cobre o perímetro e a curva também vale no 1º PI'
   close(info.length, 160 - 2 * 5 + 5 * Math.PI / 2, 0.02);
   assert.equal(info.closed, true); assert.ok(noNaN(info.base));
 });
+
+// ---------- Task 3: taludes, malha e volumes da linha ----------
+import {lineElevationAt, gradeLine, lineVolumes, compileLine} from '../src/core/lineGrading.js';
+import {slopeRise} from '../src/core/slopes.js';
+import {buildSurface} from '../src/core/surface.js';
+
+function planeTerrain(f, {min = -60, max = 160, step = 20} = {}) {
+  const points = [];
+  for (let x = min; x <= max; x += step) for (let y = min; y <= max; y += step) points.push({id: `T${points.length}`, x, y, z: f(x, y), description: 'TN'});
+  return {points, triangles: buildSurface(points).triangles};
+}
+const reta = (extra = {}) => validateDesignLine({pis: [{x: 0, y: 0}, {x: 100, y: 0}], elevation: {mode: 'ramp', start: 100, slope: 0}, side: 'right', cutSlope: 1, ...extra});
+
+test('reta sobre terreno plano: corte = área da seção × comprimento (pontas retas)', () => {
+  const {points, triangles} = planeTerrain(() => 105);
+  const v = lineVolumes(points, triangles, reta(), {maxCells: 400000});
+  close(v.cut, 1250, 1250 * 0.005, 'corte'); assert.ok(v.fill < 1e-6);
+});
+
+test('reta com bancadas: corte = seção em degraus × comprimento', () => {
+  const benches = {enabled: true, height: 2, width: 1, apply: 'cut'};
+  const {points, triangles} = planeTerrain(() => 105);
+  const v = lineVolumes(points, triangles, reta({benches}), {maxCells: 400000});
+  let area = 0; const n = 100000, D = 20;
+  for (let i = 0; i < n; i++) { const d = (i + .5) * D / n, h = 5 - slopeRise(d, 1, benches); if (h > 0) area += h * D / n; }
+  close(v.cut, 100 * area, 100 * area * 0.005, 'corte com bancadas');
+});
+
+test('lado "both" dobra o volume; o lado oposto fica fora do projeto', () => {
+  const {points, triangles} = planeTerrain(() => 105);
+  const v = lineVolumes(points, triangles, reta({side: 'both'}), {maxCells: 400000});
+  close(v.cut, 2500, 2500 * 0.005, 'ambos');
+  const info = compileLine(reta(), null);
+  assert.equal(lineElevationAt(reta(), info, 50, 2, 105), null, 'lado esquerdo');
+  assert.equal(lineElevationAt(reta(), info, -1, -2, 105), null, 'além da ponta');
+  close(lineElevationAt(reta(), info, 50, -2, 105), 102, 1e-9, 'talude 1:1');
+});
+
+test('malha da linha: offset no terreno, tipos coerentes e sem NaN', () => {
+  const {points, triangles} = planeTerrain(() => 105);
+  const m = gradeLine(points, triangles, reta());
+  assert.ok(m.daylight.length > 10);
+  m.daylight.forEach(v => close(v.z, 105, 1e-3, 'offset'));
+  assert.equal(m.triangles.length, m.types.length);
+  assert.ok(m.triangles.every(t => t.every(i => Number.isFinite(m.vertices[i].z))));
+  assert.ok(m.types.every(t => t === 'cut'));
+  assert.ok(m.base.length >= 2);
+});
+
+test('linha fechada para fora equivale à plataforma com os mesmos vértices', () => {
+  const {points, triangles} = planeTerrain(() => 104);
+  const l = validateDesignLine({pis: [{x: 20, y: 20}, {x: 60, y: 20}, {x: 60, y: 60}, {x: 20, y: 60}], closed: true, side: 'outside', elevation: {mode: 'ramp', start: 100, slope: 0}});
+  const v = lineVolumes(points, triangles, l);
+  // prisma 1600 × 4 + Pappus: ∫0..4 (4 − d)(160 + 2πd) dd
+  const expected = 1600 * 4 + (160 * 8 + 2 * Math.PI * (4 ** 3 / 6));
+  close(v.cut, expected, expected * 0.005, 'fechada');
+});
+
+test('volume da linha aberta não depende do alinhamento da grade', () => {
+  const {points, triangles} = planeTerrain(() => 105);
+  for (const maxCells of [30000, 100000, 250000]) close(lineVolumes(points, triangles, reta(), {maxCells}).cut, 1250, 1250 * 0.007, `maxCells ${maxCells}`);
+});

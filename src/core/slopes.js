@@ -55,14 +55,14 @@ export function meshDefaults(points, baseLength) {
 /**
  * Lança os taludes a partir de uma base (polilinha 3D) até o terreno e gera a malha.
  * @param {Array<{x,y,z}>} base fechada: sentido anti-horário; aberta: sentido do traçado
- * @param {{closed:boolean, side:'outside'|'right'|'left', terrainAt:(x,y)=>number|null, nearest:(x,y)=>{d:number,z:number},
+ * @param {{closed:boolean, side:'outside'|'inside'|'right'|'left', terrainAt:(x,y)=>number|null, nearest:(x,y)=>{d:number,z:number},
  *   ruleFor:(mode:'cut'|'fill')=>{H:number, bench:object|null}, spacing:number, maxDistance:number}} opts
- *   'outside' (fechada) e 'right' usam a normal à direita do segmento; 'left' inverte a base. Na base aberta, as pontas
+ *   'outside' (fechada) e 'right' usam a normal à direita do segmento; 'left' e 'inside' invertem a base ('inside' sem interior). Na base aberta, as pontas
  *   recebem um único raio perpendicular (pontas retas).
  * @returns {{vertices, triangles, types, daylight, hatch, benchLines, warnings:string[], stats:{maxCut,maxFill,rays}}}
  */
 export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, spacing, maxDistance}) {
-  const poly = side === 'left' ? base0.slice().reverse() : base0, n = poly.length, warnings = new Set();
+  const poly = side === 'left' || side === 'inside' ? base0.slice().reverse() : base0, n = poly.length, warnings = new Set();
   const segCount = closed ? n : n - 1;
   const normal = i => { const a = poly[i], b = poly[(i + 1) % n], l = Math.hypot(b.x - a.x, b.y - a.y) || 1; return {x: (b.y - a.y) / l, y: -(b.x - a.x) / l}; };
   // 1. Amostras da base + raios (leque nos cantos convexos, bissetriz nos reentrantes, perpendicular nas pontas)
@@ -137,7 +137,7 @@ export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, sp
   }
   // 3. Triangulação: interior (fechada) + faixas de talude entre raios (costura)
   const tris = [], types = [];
-  if (closed) {
+  if (closed && side !== 'inside') {
     const o = base[0], loop = base.map((_, i) => [i, (i + 1) % base.length]);
     cdt2d(base.map(q => [q.x - o.x, q.y - o.y]), loop, {delaunay: true, exterior: false}).forEach(t => { tris.push(t); types.push('platform'); });
   }
@@ -162,9 +162,11 @@ export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, sp
  * Volumes de corte e aterro entre terreno e projeto, integrados em grade regular.
  * @param {(x:number,y:number,T:number)=>number|null} designAt cota de projeto (null = fora da terraplenagem)
  * @param {{minX,minY,maxX,maxY}} bbox região de integração (já limitada ao terreno)
- * @param {{cell?:number, maxCells?:number, inside?:(x,y)=>boolean}} opts inside: área de projeto sem terreno conta em `outside`
+ * @param {{cell?:number, maxCells?:number, inside?:(x,y)=>boolean, refine?:(x,y,h)=>boolean}} opts inside: área de projeto sem
+ *   terreno conta em `outside`; refine: célula junto de uma descontinuidade do projeto (ex.: a própria linha aberta), que é
+ *   subamostrada 8×8 para não depender do alinhamento da grade.
  */
-export function gridVolumes(designAt, terrainAt, bbox, {cell, maxCells = 250000, inside = null} = {}) {
+export function gridVolumes(designAt, terrainAt, bbox, {cell, maxCells = 250000, inside = null, refine = null} = {}) {
   const {minX, minY, maxX, maxY} = bbox;
   const out = {cut: 0, fill: 0, net: 0, areaCut: 0, areaFill: 0, footprint: 0, cell: 0, outside: 0};
   if (!(maxX > minX && maxY > minY)) return out;
@@ -174,6 +176,17 @@ export function gridVolumes(designAt, terrainAt, bbox, {cell, maxCells = 250000,
   out.cell = h;
   for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
     const x = minX + (i + .5) * h, y = minY + (j + .5) * h;
+    if (refine && refine(x, y, h)) {
+      const k = 8, a = A / (k * k);
+      for (let u = 0; u < k; u++) for (let v = 0; v < k; v++) {
+        const sx = minX + (i + (u + .5) / k) * h, sy = minY + (j + (v + .5) / k) * h, T = terrainAt(sx, sy);
+        if (T === null) { if (inside && inside(sx, sy)) out.outside += a; continue; }
+        const D = designAt(sx, sy, T); if (D === null) continue;
+        out.footprint += a; const diff = T - D;
+        if (diff > 0) { out.cut += diff * a; out.areaCut += a; } else if (diff < 0) { out.fill -= diff * a; out.areaFill += a; }
+      }
+      continue;
+    }
     const T = terrainAt(x, y);
     if (T === null) { if (inside && inside(x, y)) out.outside += A; continue; }
     const D = designAt(x, y, T);
