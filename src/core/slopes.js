@@ -229,15 +229,15 @@ export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, sp
   }
   rays.forEach((r, k) => { if (k % 3 === 0 && r.mode !== 'none') hatch.push([base[r.base], vertices[r.chain.at(-1)], r.mode]); });
   // linhas das bermas (crista e pé), ligando raios consecutivos que têm a mesma quebra
-  const benchLines = [];
+  const benchLines = [], benchLineKinds = [];
   if (anyBench) {
     const open = new Map();
     rays.forEach(r => {
       const here = new Set();
-      r.tags.forEach((tag, i) => { if (!tag || tag === 'end') return; const key = r.mode + tag; here.add(key); let line = open.get(key); if (!line) { line = []; open.set(key, line); benchLines.push(line); } line.push(vertices[r.chain[i]]); });
+      r.tags.forEach((tag, i) => { if (!tag || tag === 'end' || tag === 'floor') return; const key = r.mode + tag; here.add(key); let line = open.get(key); if (!line) { line = []; open.set(key, line); benchLines.push(line); benchLineKinds.push(tag.startsWith('toe') ? 'toe' : 'crest'); } line.push(vertices[r.chain[i]]); });
       for (const key of [...open.keys()]) if (!here.has(key)) open.delete(key);
     });
-    for (let i = benchLines.length - 1; i >= 0; i--) if (benchLines[i].length < 2) benchLines.splice(i, 1);
+    for (let i = benchLines.length - 1; i >= 0; i--) if (benchLines[i].length < 2) { benchLines.splice(i, 1); benchLineKinds.splice(i, 1); }
   }
   // 3. Triangulação: interior (fechada) + faixas de talude entre raios (costura)
   const tris = [], types = [];
@@ -270,7 +270,7 @@ export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, sp
       if (advA) { add([A[i], B[j], A[i + 1]], r1, r2); i++; } else { add([A[i], B[j], B[j + 1]], r1, r2); j++; }
     }
   }
-  return {vertices, triangles: tris, types, daylight, hatch, benchLines, floorOutline, warnings: [...warnings], stats: {maxCut, maxFill, rays: rays.length}};
+  return {vertices, triangles: tris, types, daylight, hatch, benchLines, benchLineKinds, floorOutline, warnings: [...warnings], stats: {maxCut, maxFill, rays: rays.length}};
 }
 
 /**

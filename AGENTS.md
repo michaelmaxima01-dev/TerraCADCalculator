@@ -2,12 +2,12 @@
 
 Aplicação web local de topografia e terraplenagem: nuvem de pontos → TIN restrita (Delaunay com restrições) → planta 2D + 3D, curvas de nível, perfil com greide editável, seções transversais, plataformas com taludes, volumes e exportação DXF/LandXML/CSV. Direção do produto: equivalência funcional progressiva ao Civil 3D, com mais automação. Interface e mensagens em **português do Brasil**.
 
-Versão atual: **4.0** (com rampas, bermas, DWG/DXF e nova interface; projeto JSON v5) (`package.json` 0.4.0). Guias do usuário: `LEIA-ME-V4.md` (novidades), `LEIA-ME-V3.md`, `LEIA-ME-V2.md`.
+Versão atual: **4.0** (com linha de projeto, bancadas, término por profundidade, rampas, DWG/DXF e nova interface; projeto JSON v6) (`package.json` 0.4.0). Guias do usuário: `LEIA-ME-V4.md` (novidades), `LEIA-ME-V3.md`, `LEIA-ME-V2.md`.
 
 ## Comandos
 - `npm ci` — instalar (Node.js 22.12+)
 - `npm run dev` — Vite em 127.0.0.1
-- `npm test` — `node --test` (65 testes do núcleo; devem continuar passando)
+- `npm test` — `node --test` (101 testes do núcleo; devem continuar passando)
 - `npm run build` — gera `dist/`
 - `node serve.mjs` — servidor de uso (somente módulos nativos), serve `dist/` em http://127.0.0.1:4173
 - `npm run build:hostinger` — versão online com login (`--mode hostinger`, `VITE_TERRACAD_AUTH=1`, `base ./`) em `dist-hostinger/` e pacote `pacote-hostinger/terracad-hostinger.zip` (guia: `PUBLICAR-HOSTINGER.md`)
@@ -38,6 +38,10 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 | `src/core/profile.js` | `sampleProfile`, `profileContext` (reutilizável), `triangleLocator` |
 | `src/core/grade.js` | Greide: PVIs, curvas verticais parabólicas, inserir/mover |
 | `src/core/breaklines.js` | `drapeBreakline`: linha obrigatória livre assentada na TIN (pontos `RL###`) |
+| `src/core/slopes.js` | Regras de talude compartilhadas: `slopeRise`/`slopeReach`/`slopeBreaks`/`slopeRun` (bancadas com `startAfter`, `resolveBench` para `count`), `validateBenches`, `validateEnd`/`floorOf`/`descendZ` (término por profundidade), `castSlopes` (raios, costura, bermas, fundo, cava, tipos `cut/fill/bench/floor/platform`), `gridVolumes` (com `refine` 8×8 junto de descontinuidades) |
+| `src/core/designLine.js` | Linha de projeto: `validateDesignLine`, `buildLineBase` (curvas de canto, estacas, cota por rampa/PI/terreno − desnível, `piStations`/`piZ`), `lineNearest` (índice em grade), `moveVertex`/`insertVertex`/`removeVertex`/`checkVertices` |
+| `src/core/lineGrading.js` | `compileLine`, `lineElevationAt`, `gradeLine` (lados, pontas retas, parede `wall` só para desenho, `daylightRuns`), `lineVolumes`; linha fechada para fora = plataforma |
+| `src/components/DesignLineCard.jsx`, `SlopeFields.jsx`, `Fields.jsx` | Cartão da linha; campos de bermas e término (linha e plataforma); `NumberField` |
 | `src/core/grading.js` | Plataformas: modelo de distância `z = Zb ± subida(d)` (Zb = cota da borda mais próxima; rampa = TIN dos vértices com cota), bermas (`slopeRise`, `slopeBreaks`, `benchLines`), malha de taludes com costura entre raios, volumes em grade, `shiftPlatform`/`applyPlaneSlope`/`flattenPlatform`, `clipTerrainMesh` |
 | `src/core/sections.js` | Estacas, seções, média das áreas extremas |
 | `src/core/snap.js` | Índice de atração: nó/vértice > ponto médio > mais próximo |
@@ -46,11 +50,11 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 | `hostinger/` | Arquivos do servidor: `.htaccess`, `gate.php` (porteiro: confere a sessão e entrega `app/`), `api/auth.php` (contas/licenças em `api/data/*.json`, sem banco; primeiro acesso por código de instalação), `login.html/js/css` |
 | `src/auth/` | `auth-client.js` (cliente da API, também copiado para o pacote) e `Account.jsx` (menu da conta, aviso de vencimento, tela de acesso encerrado, painel de usuários) — ativos só com `VITE_TERRACAD_AUTH=1` |
 | `scripts/` | `pacote-hostinger.mjs` (monta pasta, `.gz` e zip sem dependências), `hostinger-local-router.php` (teste com `php -S`) |
-| `tests/*.test.js` | `core`, `surface`, `v3`, `v4`, `cad` (fixture `tests/fixtures/blocos.dxf`), `v5` (bermas por Pappus, rampas) |
+| `tests/*.test.js` | `core`, `surface`, `v3`, `v4`, `cad` (fixture `tests/fixtures/blocos.dxf`), `v5` (bermas por Pappus, rampas), `slopes`, `linha` (curvas, volumes por seção × comprimento, cava (40³ − 24³)/6, arraste) |
 | `AppV2/V3`, `ViewportV2/V3`, `ProfileChart`, `main.jsx`, `Viewport.jsx` | Versões anteriores preservadas como referência, **fora da entrada** — não editar sem pedido |
 
-## Modelo de dados (projeto JSON v5)
-`{version:5, points:[{id,x,y,z,description}], triangles:[[i,j,k]], breaklines:[[idx...]], boundary:[idx...], maxEdge, alignment:[{x,y}], grade:[{station,z,curve}], platforms:[{id,name,polygon:[{x,y,z?}],elevation,cutSlope,fillSlope,benches:{enabled,height,width,apply:'cut'|'fill'|'both'},visible}], labelStyle, groupColors, contourStyle, referenceZ, sectionSettings:{interval,halfWidth}}`. Índices referem-se ao array `points`. Vértice sem `z` usa `elevation`. Novas versões devem continuar abrindo v1–v5.
+## Modelo de dados (projeto JSON v6)
+`{version:6, points:[{id,x,y,z,description}], triangles:[[i,j,k]], breaklines:[[idx...]], boundary:[idx...], maxEdge, alignment:[{x,y}], grade:[{station,z,curve}], platforms:[{id,name,polygon:[{x,y,z?}],elevation,cutSlope,fillSlope,benches:Bench,end:End,visible}], designLines:[{id,name,visible,closed,pis:[{x,y,z?,radius?}],elevation:{mode:'ramp'|'pis'|'terrain',start,slope,drop},side:'left'|'right'|'both'|'outside'|'inside',cutSlope,fillSlope,benches:Bench,end:End}], labelStyle, groupColors, contourStyle, referenceZ, sectionSettings:{interval,halfWidth}}`. Índices referem-se ao array `points`. `Bench = {enabled,height,width,apply:'cut'|'fill'|'both',startAfter,count}`, `End = {mode:'terrain'|'depth',depth,floorZ}`. Vértice sem `z` usa `elevation`. Novas versões devem continuar abrindo v1–v6.
 
 ## Regras do domínio
 - Recalcular a TIN descarta inversões/cortes manuais; contorno, linhas obrigatórias, eixo, greide e plataformas persistem.
@@ -58,6 +62,9 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 - Coordenadas UTM grandes: centralizar antes de triangular/renderizar (já feito em `tin.js` e nos viewports).
 - Curvas: convenção `z >= nível` (a cota mínima exata não gera linha).
 - Plataforma plana ou em rampa (cota por vértice; interior = TIN dos vértices). Mudar a cota de referência desloca a rampa inteira. Taludes pelo modelo de distância, com bermas opcionais (altura da bancada, largura da berma; corte, aterro ou ambos). Plataformas sobrepostas não são combinadas.
+- Linha de projeto: aberta (talude para um lado ou ambos, pontas retas) ou fechada (para fora = plataforma; para dentro = cava). Raio grande demais é limitado com aviso.
+- Bancadas: `startAfter` = talude contínuo até essa altura e 1ª berma nela; `count` (só com término por profundidade) = N bermas iguais em D, h = D/(N+1).
+- Término por profundidade: o talude desce com H:V e bermas de **corte** até `floorZ` (nunca acima da base) ou base − `depth`; o fundo segue plano até o terreno (na cava, ocupa o interior).
 - Volumes são geométricos (sem empolamento/contração).
 
 ## Convenções
@@ -75,7 +82,7 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 4. Não versionar desenhos de clientes (DWG/DXF reais); usar fixtures sintéticas.
 
 ## Backlog sugerido
-Corredor (seção-tipo ao longo do eixo) · curvas horizontais no eixo · volume superfície × superfície (ex.: levantamentos jan × mar/2022 da Mina Cutia) · arrastar vértices de plataforma · curvas importadas como linhas obrigatórias · planimetria do DWG como fundo · textos de cota (TEXT) como pontos · triangulação mais rápida (≈3 s para 10 mil pontos) · reduzir estado do `AppV4` (reducer/store) · `constraintsFor` O(n²).
+Corredor (seção-tipo ao longo do eixo) · clotoides · Worker/LOD para arraste com nuvens grandes (meta < 100 ms não atingida em Chromium sem GPU com 10 mil pontos) · volume superfície × superfície (ex.: levantamentos jan × mar/2022 da Mina Cutia) · arrastar vértices de plataforma · curvas importadas como linhas obrigatórias · planimetria do DWG como fundo · textos de cota (TEXT) como pontos · triangulação mais rápida (≈3 s para 10 mil pontos) · reduzir estado do `AppV4` (reducer/store) · `constraintsFor` O(n²).
 
 ## Pendências com o usuário
 Confirmar o significado de "modelo aranha" e de "curso que mostre as milhas" (provavelmente cursor em mira).

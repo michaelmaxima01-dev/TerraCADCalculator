@@ -7,6 +7,7 @@ import CadImportDialog from './components/CadImportDialog';
 import Icon from './components/Icons';
 import {NumberField} from './components/Fields';
 import DesignLineCard from './components/DesignLineCard';
+import SlopeFields from './components/SlopeFields';
 import {useLicense, AccountMenu, LicenseBanner, LockScreen, AdminPanel} from './auth/Account';
 import {pointGroups, upsertPoint} from './core/points';
 import {editEdge} from './core/tin';
@@ -519,8 +520,8 @@ export default function AppV4() {
           <button className="full primary" onClick={() => chooseTool('platform')}>＋ Desenhar plataforma (G)</button>
           <p className="hint">Polilinha fechada em planta. Taludes partem da borda até encontrar o terreno, com inclinação H:V de corte e de aterro.</p>
           {platforms.length === 0 && <p className="muted">Nenhuma plataforma no projeto.</p>}
-          {platforms.map(p => { const d = designs.find(x => x.kind === 'platform' && x.platform.id === p.id), sel = p.id === selectedPlatform; return <div key={p.id + ':' + revision} className={`object-card ${sel ? 'selected' : ''}`} data-testid={`platform-${p.name}`} onClick={() => setSelectedPlatform(p.id)}>
-            <div className="object-head"><input aria-label="Nome da plataforma" className="name" defaultValue={p.name} onBlur={e => e.target.value.trim() && e.target.value !== p.name && updatePlatform(p.id, {name: e.target.value.trim()}, 'Plataforma renomeada.')} onKeyDown={e => e.key === 'Enter' && e.target.blur()}/>
+          {platforms.map(p => { const d = designs.find(x => x.kind === 'platform' && x.platform.id === p.id), sel = p.id === selectedPlatform; return <div key={p.id} className={`object-card ${sel ? 'selected' : ''}`} data-testid={`platform-${p.name}`} onClick={() => setSelectedPlatform(p.id)}>
+            <div className="object-head"><input aria-label="Nome da plataforma" className="name" key={p.name} defaultValue={p.name} onBlur={e => e.target.value.trim() && e.target.value !== p.name && updatePlatform(p.id, {name: e.target.value.trim()}, 'Plataforma renomeada.')} onKeyDown={e => e.key === 'Enter' && e.target.blur()}/>
               <label className="check inline" title="Exibir e calcular"><input type="checkbox" checked={p.visible !== false} onChange={e => updatePlatform(p.id, {visible: e.target.checked}, e.target.checked ? 'Plataforma ativada.' : 'Plataforma ocultada (fora dos cálculos).')}/>ativa</label></div>
             <NumberField label={isRamp(p) ? 'Cota de referência (desloca a rampa)' : 'Cota da plataforma'} aria-label={`Cota da ${p.name}`} value={p.elevation} onCommit={v => setPlatformElevation(p, v)}/>
             <div className="two"><NumberField label="Corte H:V" aria-label={`Talude de corte da ${p.name}`} value={p.cutSlope} min="0.01" digits={2} onCommit={v => updatePlatform(p.id, {cutSlope: v})}/><NumberField label="Aterro H:V" aria-label={`Talude de aterro da ${p.name}`} value={p.fillSlope} min="0.01" digits={2} onCommit={v => updatePlatform(p.id, {fillSlope: v})}/></div>
@@ -533,13 +534,7 @@ export default function AppV4() {
                 <p className="hint">A cota de referência vale no centro; o caimento desce na direção do azimute. Cada vértice pode ter cota própria:</p>
                 <div className="vertex-z">{p.polygon.map((v, i) => <NumberField key={i} label={`V${i + 1}`} aria-label={`Cota do vértice ${i + 1} da ${p.name}`} value={zs[i]} onCommit={z => updatePlatform(p.id, {polygon: p.polygon.map((q, k) => k === i ? {...q, z} : q)}, `${p.name}: cota do vértice ${i + 1} alterada.`)}/>)}</div>
               </details>
-              <details className="sub" open={openSub[p.id + ':bench'] ?? bn.enabled} onToggle={e => { const o = e.currentTarget.open; setOpenSub(x => x[p.id + ':bench'] === o ? x : {...x, [p.id + ':bench']: o}); }}><summary>Bermas / bancadas {bn.enabled ? `· ${fmt(bn.height, 1)} m / ${fmt(bn.width, 1)} m` : '· desligadas'}</summary>
-                <label className="check"><input type="checkbox" checked={bn.enabled} onChange={e => updatePlatform(p.id, {benches: {...bn, enabled: e.target.checked}}, e.target.checked ? `${p.name}: bermas ativadas a cada ${bn.height} m de altura.` : `${p.name}: bermas desativadas.`)}/>Inserir bermas no talude</label>
-                <div className="two"><NumberField label="Altura da bancada (m)" aria-label={`Altura da bancada da ${p.name}`} value={bn.height} min="0.1" digits={2} onCommit={v => updatePlatform(p.id, {benches: {...bn, height: v}})}/>
-                  <NumberField label="Largura da berma (m)" aria-label={`Largura da berma da ${p.name}`} value={bn.width} min="0" digits={2} onCommit={v => updatePlatform(p.id, {benches: {...bn, width: v}})}/></div>
-                <label>Aplicar em<select aria-label={`Bermas da ${p.name} em`} value={bn.apply} onChange={e => updatePlatform(p.id, {benches: {...bn, apply: e.target.value}})}><option value="cut">Corte</option><option value="fill">Aterro</option><option value="both">Corte e aterro</option></select></label>
-                <p className="hint">A cada altura de bancada o talude ganha uma berma horizontal antes de seguir na inclinação H:V até o terreno.</p>
-              </details></>; })()}
+              <SlopeFields label={p.name} benches={bn} end={p.end} onChange={(changes, text) => updatePlatform(p.id, changes, text)}/></>; })()}
             {d?.error && <p className="field-error">{d.error}</p>}
             {d?.volume && <div className="volume-card compact"><div><span>Corte</span><b className="cut">{fmt(d.volume.cut, 1)} m³</b><small>h máx {fmt(d.mesh.stats.maxCut)} m</small></div><div><span>Aterro</span><b className="fill">{fmt(d.volume.fill, 1)} m³</b><small>h máx {fmt(d.mesh.stats.maxFill)} m</small></div><div className="net"><span>Saldo · área ocupada</span><b>{fmt(d.volume.net, 1)} m³ · {fmt(d.volume.footprint, 0)} m²</b></div></div>}
             {d?.mesh?.warnings.map(w => <p key={w} className="warn">⚠ {w}</p>)}

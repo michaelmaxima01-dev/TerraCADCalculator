@@ -55,7 +55,7 @@ export function gradeLine(points, triangles, line, {elevationAt, spacing, maxDis
     for (const side of sides) {
       const m = castSlopes(line.closed ? info.ccw : info.base, {...opts, side}), off = mesh.vertices.length;
       mesh.vertices.push(...m.vertices); m.triangles.forEach(t => mesh.triangles.push(t.map(i => i + off))); mesh.types.push(...m.types);
-      mesh.daylight.push(...m.daylight); mesh.daylightRuns.push(m.daylight); (mesh.floorOutline ||= []).push(...(m.floorOutline || [])); mesh.hatch.push(...m.hatch); mesh.benchLines.push(...m.benchLines); mesh.warnings.push(...m.warnings);
+      mesh.daylight.push(...m.daylight); mesh.daylightRuns.push(m.daylight); (mesh.floorOutline ||= []).push(...(m.floorOutline || [])); mesh.hatch.push(...m.hatch); mesh.benchLines.push(...m.benchLines); (mesh.benchLineKinds ||= []).push(...m.benchLineKinds); mesh.warnings.push(...m.warnings);
       mesh.stats.maxCut = Math.max(mesh.stats.maxCut, m.stats.maxCut); mesh.stats.maxFill = Math.max(mesh.stats.maxFill, m.stats.maxFill); mesh.stats.rays += m.stats.rays;
     }
     mesh.warnings = [...new Set(mesh.warnings)];

@@ -67,3 +67,10 @@ Plataformas com rampa/greide próprio e bermas; corredor (seção-tipo varrida a
 
 ## Desenvolvimento
 Entrada `src/v4.jsx` → `src/AppV4.jsx`; renderer `src/components/ViewportV4.jsx`; `ProfileEditor.jsx`, `SectionViewer.jsx`. Núcleo novo: `src/core/grade.js`, `breaklines.js`, `grading.js`, `sections.js`, `snap.js`. Versões anteriores (V1–V3) preservadas fora da entrada. `npm ci`, `npm run dev`, `npm test`, `npm run build`. Node.js 22.12+.
+
+## Linha de projeto e bancadas (novembro/2026)
+- **Linha de projeto (T)**: clique os PIs; Enter conclui aberta, clicar no 1º PI fecha. No painel *Projeto → Linhas de projeto*: traçado aberto/fechado, lado do talude (direita, esquerda, ambos; fechada: para fora ou para dentro/cava), cota da linha (cota inicial + rampa %, cota em cada PI ou terreno − desnível) e a tabela de PIs com estaca, cota e **raio da curva de canto**.
+- **Editar arrastando**: selecione a linha (ou uma plataforma) e arraste os quadrados dos PIs/vértices na planta (atração ligada; Alt desliga). Clique num trecho para inserir um PI; botão direito ou Delete remove; Esc cancela; Ctrl+Z desfaz. Arraste que faz a linha se cruzar é recusado.
+- **Bermas**: altura da bancada e largura da berma, **a partir de X m** (talude contínuo até essa altura) ou **por quantidade** (N bermas iguais na profundidade, ex.: 2 bermas em 8 m → bancadas de 2,67 m).
+- **Término do talude**: até encontrar o terreno, **descer uma profundidade** ou **descer até uma cota final**; depois o fundo segue plano até o terreno (na cava, o fundo ocupa o interior). Vale para linhas e plataformas.
+- **Exportação DXF**: `TC_LP_EIXO`, `TC_LP_OFFSET`, `TC_LP_CRISTA`, `TC_LP_PE`, `TC_LP_FUNDO`, faces `TC_FUNDO` e `TC_BERMA_FACE`. Projeto JSON **v6** (abre v1–v5).

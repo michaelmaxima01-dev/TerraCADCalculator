@@ -1,6 +1,6 @@
 import React, {useState} from 'react';
 import {NumberField} from './Fields';
-import {BENCH_DEFAULT} from '../core/slopes';
+import SlopeFields from './SlopeFields';
 
 const SIDES_OPEN = [['right', 'Direita'], ['left', 'Esquerda'], ['both', 'Os dois lados']], SIDES_CLOSED = [['outside', 'Para fora'], ['inside', 'Para dentro (cava)']];
 const station = s => { const km = Math.floor(s / 1000), m = s - km * 1000; return `${km}+${m.toFixed(2).padStart(6, '0')}`; };
@@ -10,9 +10,9 @@ const station = s => { const km = Math.floor(s / 1000), m = s - km * 1000; retur
  * @param {{line, design, selected:boolean, onSelect:()=>void, onChange:(changes:object, text?:string)=>void, onRemove:()=>void, fmt:(v:number, d?:number)=>string}} props
  */
 export default function DesignLineCard({line, design, selected, onSelect, onChange, onRemove, fmt}) {
-  const m = design?.mesh, v = design?.volume, bn = line.benches || BENCH_DEFAULT, e = line.elevation, label = line.name;
+  const m = design?.mesh, v = design?.volume, e = line.elevation, label = line.name;
   const setElevation = (k, val) => onChange({elevation: {...e, [k]: val}});
-  const [openPis, setOpenPis] = useState(selected), [openBench, setOpenBench] = useState(bn.enabled);
+  const [openPis, setOpenPis] = useState(selected);
   return <div className={`object-card line-card ${selected ? 'selected' : ''}`} data-testid={`line-${label}`} onClick={onSelect}>
     <div className="object-head"><input aria-label="Nome da linha" className="name" defaultValue={label} key={label} onBlur={ev => ev.target.value.trim() && ev.target.value !== label && onChange({name: ev.target.value.trim()}, 'Linha renomeada.')} onKeyDown={ev => ev.key === 'Enter' && ev.target.blur()}/>
       <label className="check inline" title="Exibir e calcular"><input type="checkbox" checked={line.visible !== false} onChange={ev => onChange({visible: ev.target.checked}, ev.target.checked ? 'Linha ativada.' : 'Linha ocultada (fora dos cálculos).')}/>ativa</label></div>
@@ -36,11 +36,7 @@ export default function DesignLineCard({line, design, selected, onSelect, onChan
     </details>
     <div className="two"><NumberField label="Corte H:V" aria-label={`Talude de corte da ${label}`} value={line.cutSlope} min="0.01" digits={2} onCommit={val => onChange({cutSlope: val})}/><NumberField label="Aterro H:V" aria-label={`Talude de aterro da ${label}`} value={line.fillSlope} min="0.01" digits={2} onCommit={val => onChange({fillSlope: val})}/></div>
     <p className="hint">Face do corte: 1 m de altura × {fmt(line.cutSlope, 2)} m de afastamento · aterro: 1 × {fmt(line.fillSlope, 2)}.</p>
-    <details className="sub" open={openBench} onToggle={ev => setOpenBench(ev.currentTarget.open)}><summary>Bermas / bancadas {bn.enabled ? `· ${fmt(bn.height, 1)} m / ${fmt(bn.width, 1)} m` : '· desligadas'}</summary>
-      <label className="check"><input type="checkbox" checked={bn.enabled} onChange={ev => onChange({benches: {...bn, enabled: ev.target.checked}}, ev.target.checked ? `${label}: bermas ativadas.` : `${label}: bermas desativadas.`)}/>Inserir bermas no talude</label>
-      <div className="two"><NumberField label="Altura da bancada (m)" aria-label={`Altura da bancada da ${label}`} value={bn.height} min="0.1" digits={2} onCommit={val => onChange({benches: {...bn, height: val}})}/><NumberField label="Largura da berma (m)" aria-label={`Largura da berma da ${label}`} value={bn.width} min="0" digits={2} onCommit={val => onChange({benches: {...bn, width: val}})}/></div>
-      <label>Aplicar em<select aria-label={`Bermas da ${label} em`} value={bn.apply} onChange={ev => onChange({benches: {...bn, apply: ev.target.value}})}><option value="cut">Corte</option><option value="fill">Aterro</option><option value="both">Corte e aterro</option></select></label>
-    </details>
+    <SlopeFields label={label} benches={line.benches} end={line.end} onChange={onChange}/>
     {design?.error && <p className="field-error">{design.error}</p>}
     {v && <div className="volume-card compact"><div><span>Corte</span><b className="cut">{fmt(v.cut, 1)} m³</b><small>h máx {fmt(m.stats.maxCut)} m</small></div><div><span>Aterro</span><b className="fill">{fmt(v.fill, 1)} m³</b><small>h máx {fmt(m.stats.maxFill)} m</small></div><div className="net"><span>Saldo · área ocupada</span><b>{fmt(v.net, 1)} m³ · {fmt(v.footprint, 0)} m²</b></div></div>}
     {m?.warnings?.map(w => <p key={w} className="warn">⚠ {w}</p>)}

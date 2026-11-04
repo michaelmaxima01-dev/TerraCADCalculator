@@ -275,3 +275,12 @@ test('cava: raios param na aresta entre faces (não atravessam até a borda opos
   assert.equal(m.daylight.filter(v => Math.abs(v.z - 100) < 1e-6).length, 0, 'nenhum raio termina na borda');
   m.daylight.forEach(v => assert.ok(v.z <= 100 && v.z >= 92 - 1e-6));
 });
+
+test('exportação da cava: fundo, contorno do fundo, pé e face das bermas em camadas próprias', () => {
+  const {points, triangles} = planeTerrain(() => 100);
+  const l = cava({benches: {enabled: true, count: 2, width: 1, apply: 'cut'}}), mesh = gradeLine(points, triangles, l);
+  assert.equal(mesh.benchLineKinds.length, mesh.benchLines.length);
+  assert.ok(mesh.benchLineKinds.includes('crest') && mesh.benchLineKinds.includes('toe'));
+  const dxf = toDXF({points, triangles, designs: [{kind: 'line', line: l, mesh}]});
+  for (const layer of ['TC_FUNDO', 'TC_LP_FUNDO', 'TC_LP_PE', 'TC_LP_CRISTA', 'TC_BERMA_FACE']) assert.match(dxf, new RegExp(`\\n${layer}\\r?\\n`), layer);
+});
