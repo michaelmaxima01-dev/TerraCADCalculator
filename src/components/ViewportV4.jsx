@@ -5,7 +5,8 @@ import {edgesOf} from '../core/tin';
 import {SNAP_LABELS} from '../core/snap';
 
 const PICK_TOOLS = ['breakline', 'boundary', 'profile', 'platform', 'line'];
-const DESIGN_COLORS = {platform: '#b9c0c7', cut: '#d98b5f', fill: '#6aa6d6', mixed: '#a99f8f', none: '#b9c0c7', wall: '#8a8276'};
+// projeto em tons de mina: corte = solo ferruginoso exposto; aterro = terra compactada; bermas/fundo = cascalho de estrada de mina
+const DESIGN_COLORS = {platform: '#d3cdc0', cut: '#c25f34', fill: '#a08a5c', mixed: '#b07548', none: '#d3cdc0', wall: '#6f4a35', bench: '#ddd5c2', floor: '#cbc2ab'};
 
 export default function ViewportV4(props) {
   const host = useRef(), labels = useRef(), cursor = useRef(), readout = useRef(), runtime = useRef(), latest = useRef(props);
@@ -290,7 +291,7 @@ export default function ViewportV4(props) {
       const positions = new Float32Array(surfVerts.length * 3), colors = new Float32Array(surfVerts.length * 3), color = new THREE.Color();
       surfVerts.forEach((p, i) => { world(p.x, p.y, p.z).toArray(positions, i * 3); const t = (p.z - minZ) / Math.max(maxZ - minZ, .001); hypsometric(Math.min(1, Math.max(0, t)), presentation.style, color); color.toArray(colors, i * 3); });
       const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3)); geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3)); geometry.setIndex(surfTris.flat()); geometry.computeVertexNormals();
-      const material = new THREE.MeshStandardMaterial({color: presentation.style === 'solid' && mode === '3D' ? '#97b5bd' : '#ffffff', vertexColors: presentation.style !== 'solid' || mode === '2D', side: THREE.DoubleSide, roughness: .9, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, wireframe: mode === '3D' && presentation.style === 'wire'});
+      const material = new THREE.MeshStandardMaterial({color: presentation.style === 'solid' && mode === '3D' ? '#8f9a72' : '#ffffff', vertexColors: presentation.style !== 'solid' || mode === '2D', side: THREE.DoubleSide, roughness: .9, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, wireframe: mode === '3D' && presentation.style === 'wire'});
       const mesh = new THREE.Mesh(geometry, material); scene.add(mesh); r.surface = mesh;
     }
     scene.add(new THREE.HemisphereLight(0xe4f1ff, 0x2b2418, mode === '2D' ? 1.5 : 1.05)); scene.add(new THREE.AmbientLight(0xffffff, mode === '2D' ? .55 : .3));
@@ -384,8 +385,9 @@ export default function ViewportV4(props) {
   </div>;
 }
 
-const HYPSO = [[0, '#2f6f73'], [.25, '#5fa36b'], [.5, '#c9c86a'], [.75, '#c48a4f'], [1, '#efe6dc']].map(([t, c]) => [t, new THREE.Color(c)]);
-const CONCEPT = [[0, '#2e5f63'], [.3, '#4f8a68'], [.6, '#8fae6c'], [.85, '#c9bf86'], [1, '#e8e0c8']].map(([t, c]) => [t, new THREE.Color(c)]);
+const HYPSO = [[0, '#1f4a24'], [.25, '#3f7a34'], [.5, '#8f9a45'], [.75, '#b8743a'], [1, '#8e3a22']].map(([t, c]) => [t, new THREE.Color(c)]);
+// Carajás: mata amazônica nas cotas baixas → dossel → oliva → canga/laterita ferruginosa nos platôs
+const CONCEPT = [[0, '#23502a'], [.3, '#3d7334'], [.55, '#6d8c3c'], [.78, '#a5874a'], [.92, '#b4643a'], [1, '#93412a']].map(([t, c]) => [t, new THREE.Color(c)]);
 function hypsometric(t, style, out) {
   if (style !== 'hypso') { for (let i = 1; i < CONCEPT.length; i++) if (t <= CONCEPT[i][0]) return out.copy(CONCEPT[i - 1][1]).lerp(CONCEPT[i][1], (t - CONCEPT[i - 1][0]) / (CONCEPT[i][0] - CONCEPT[i - 1][0])); return out.copy(CONCEPT.at(-1)[1]); }
   for (let i = 1; i < HYPSO.length; i++) if (t <= HYPSO[i][0]) return out.copy(HYPSO[i - 1][1]).lerp(HYPSO[i][1], (t - HYPSO[i - 1][0]) / (HYPSO[i][0] - HYPSO[i - 1][0]));
@@ -409,6 +411,7 @@ function drawDesigns(r, props) {
         const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
         group.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({vertexColors: true, side: THREE.DoubleSide, roughness: .85, flatShading: true})));
       }
+      segments(m.hatch.flatMap(([a, b]) => [world(a.x, a.y, a.z + lift * 1.5), world(b.x, b.y, b.z + lift * 1.5)]), '#3a2418', .55, true); // hachura técnica nas rampas
       (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y, v.z + lift)), line.closed), '#7dffb0', 1, true));
       (m.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y, v.z + lift))), '#ffd27a', .95, true));
       segments(polyline(base.map(v => world(v.x, v.y, v.z + lift)), line.closed), sel ? '#ffffff' : '#ffe9a8', 1, true);
@@ -441,6 +444,7 @@ function drawDesigns(r, props) {
       d.mesh.triangles.forEach((t, k) => { c.set(DESIGN_COLORS[d.mesh.types[k]] || '#b9c0c7'); t.forEach((i, j) => { const v = d.mesh.vertices[i]; world(v.x, v.y, v.z + lift * .5).toArray(pos, k * 9 + j * 3); c.toArray(col, k * 9 + j * 3); }); });
       const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
       group.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({vertexColors: true, side: THREE.DoubleSide, roughness: .85, flatShading: true})));
+      segments(d.mesh.hatch.flatMap(([a, b]) => [world(a.x, a.y, a.z + lift * 1.5), world(b.x, b.y, b.z + lift * 1.5)]), '#3a2418', .55, true); // hachura técnica nas rampas
       segments(polyline(d.mesh.daylight.map(v => world(v.x, v.y, v.z + lift)), true), '#7dffb0', 1, true);
       segments(polyline(d.platform.polygon.map(v => world(v.x, v.y, (Number.isFinite(v.z) ? v.z : d.platform.elevation) + lift)), true), sel ? '#ffffff' : '#e7edf2', 1, true);
       (d.mesh.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y, v.z + lift))), '#ffd27a', .95, true));

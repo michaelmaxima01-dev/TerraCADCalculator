@@ -205,6 +205,7 @@ export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, sp
       if (side !== 'inside' && prev.d > dFloor + 1e-6) { const v = at(tAtDistance(at, dFloor, endT)); if (v) { floorStart = vertices.push({x: v.x, y: v.y, z: v.z}) - 1; r.chain.push(floorStart); r.tags.push('floor'); floorSet.add(floorStart); floorOutline.push(vertices[floorStart]); } }
       const end = {x: prev.x, y: prev.y, z: prev.z}, ei = vertices.push(end) - 1;
       r.chain.push(ei); r.tags.push('end'); daylight.push(end);
+      r.slopeEnd = floorStart ?? ei; // a hachura fica só na rampa
       if (status === 'floor') { floorSet.add(ei); floorOutline.push(end); }
       else if (floorStart !== null) floorSet.add(ei);
       continue;
@@ -237,7 +238,7 @@ export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, sp
     const end = {x: prev.x, y: prev.y, z: prev.z};
     r.chain.push(vertices.push(end) - 1); r.tags.push('end'); daylight.push(end);
   }
-  rays.forEach((r, k) => { if (k % 3 === 0 && r.mode !== 'none') hatch.push([base[r.base], vertices[r.chain.at(-1)], r.mode]); });
+  rays.forEach((r, k) => { if (k % 3 === 0 && r.mode !== 'none') hatch.push([base[r.base], vertices[r.slopeEnd ?? r.chain.at(-1)], r.mode]); });
   // linhas das bermas (crista e pé), ligando raios consecutivos que têm a mesma quebra
   const benchLines = [], benchLineKinds = [];
   if (anyBench) {

@@ -53,3 +53,11 @@ test('validateBenches: novos campos e limites', () => {
   assert.throws(() => validateBenches({count: 2.5}), /entre 1 e 50/);
   assert.throws(() => validateBenches({startAfter: -1}), /a partir de/i);
 });
+
+test('hachura do talude termina no início do fundo (não atravessa o fundo plano)', () => {
+  const L = 40, base = [{x: 0, y: 0, z: 100}, {x: L, y: 0, z: 100}, {x: L, y: L, z: 100}, {x: 0, y: L, z: 100}];
+  const nearest = (x, y) => { const dx = Math.max(0 - x, 0, x - L), dy = Math.max(0 - y, 0, y - L); return {d: Math.hypot(dx, dy), z: 100}; };
+  const m = castSlopes(base, {closed: true, side: 'outside', terrainAt: (x, y) => (Math.hypot(x - 20, y - 20) < 70 ? 110 : null), nearest, ruleFor: () => ({H: 1, bench: null}), spacing: 2, maxDistance: 200, depth: {end: {mode: 'depth', depth: 5, floorZ: null}, H: 1, bench: null}});
+  assert.ok(m.hatch.length > 0);
+  m.hatch.forEach(([, b]) => { close(b.z, 95, 1e-6, 'cota do pé'); close(nearest(b.x, b.y).d, 5, 0.05, 'fim da hachura no pé do talude, a 5 m da borda'); });
+});
