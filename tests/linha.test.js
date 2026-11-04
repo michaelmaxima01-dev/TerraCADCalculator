@@ -190,3 +190,33 @@ test('linha de um lado só ganha a parede vertical do lado sem talude (só desen
   close(Math.min(...zs), 100, 1e-9); close(Math.max(...zs), 105, 1e-9);
   assert.equal(gradeLine(points, triangles, reta({side: 'both'})).types.filter(t => t === 'wall').length, 0);
 });
+
+// ---------- Task 6: edição por arraste ----------
+import {moveVertex, insertVertex, removeVertex} from '../src/core/designLine.js';
+
+test('rejeita arraste que cruza; aceita movimento válido sem perder cota e raio', () => {
+  const sq = [{x: 0, y: 0}, {x: 10, y: 0, radius: 2}, {x: 10, y: 10}, {x: 0, y: 10}];
+  assert.throws(() => moveVertex(sq, 1, {x: 5, y: 20}, {closed: true}), /cruza/); // (0,0)→(5,20) cruza o lado y = 10
+  const ok = moveVertex(sq, 1, {x: 12, y: -1}, {closed: true});
+  assert.deepEqual(ok[1], {x: 12, y: -1, radius: 2}); assert.deepEqual(sq[1], {x: 10, y: 0, radius: 2}, 'não altera o original');
+  assert.throws(() => moveVertex(sq, 1, {x: 0, y: 0}, {closed: true}), /repetidos/);
+});
+
+test('inserir PI no meio de um trecho e remover respeitando o mínimo', () => {
+  const l = [{x: 0, y: 0, z: 10}, {x: 10, y: 0, z: 20}];
+  const ins = insertVertex(l, 0, {x: 5, y: 0}, {closed: false});
+  assert.equal(ins.length, 3); assert.deepEqual(ins[1], {x: 5, y: 0, z: 15});
+  assert.equal(removeVertex(ins, 1, {closed: false}).length, 2);
+  assert.throws(() => removeVertex(l, 0, {closed: false}), /pelo menos 2/);
+  assert.throws(() => removeVertex([{x: 0, y: 0}, {x: 1, y: 0}, {x: 1, y: 1}], 0, {closed: true}), /pelo menos 3/);
+});
+
+test('lineNearest com índice espacial dá o mesmo resultado da busca completa', () => {
+  const pis = Array.from({length: 60}, (_, i) => ({x: i * 7, y: 40 * Math.sin(i / 6), radius: i % 5 === 2 ? 4 : undefined}));
+  const info = buildLineBase(validateDesignLine({pis, elevation: {mode: 'ramp', start: 10, slope: 1.5}}));
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let k = 0; k < 3000; k++) {
+    const x = -80 + rnd() * 600, y = -150 + rnd() * 300;
+    assert.deepEqual(lineNearest(info, x, y), lineNearest(info, x, y, {brute: true}), `ponto ${x},${y}`);
+  }
+});

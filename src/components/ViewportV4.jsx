@@ -72,6 +72,7 @@ export default function ViewportV4(props) {
       if (p.mode === '2D') {
         ctx.font = '11px Consolas, monospace'; ctx.textBaseline = 'middle';
         for (const l of state.textLabels) { const q = screen(l.v); if (inView(q)) drawText(ctx, l.text, q.x + (l.dx || 0), q.y + (l.dy || 0), l.color, occupied); }
+        for (const l of state.designLabels || []) { const q = screen(l.v); if (inView(q)) drawText(ctx, l.text, q.x + (l.dx || 0), q.y + (l.dy || 0), l.color, occupied); }
         if (p.contourStyle?.visible2D && p.contourStyle.labels) { let count = 0; for (const label of state.contourLabels) { if (count >= 150) break; const q = screen(label.v); if (inView(q) && drawText(ctx, label.text, q.x - 14, q.y, '#fff1c2', occupied)) count++; } }
         if (p.layers.points && p.style.visible) {
           ctx.font = `${p.style.size}px Consolas, monospace`; let count = 0;
@@ -83,8 +84,18 @@ export default function ViewportV4(props) {
           }
         }
       }
+      // alças de edição (PIs da linha / vértices da plataforma selecionada)
+      if (p.mode === '2D' && p.tool === 'orbit' && p.handles?.length) {
+        ctx.save(); ctx.lineWidth = 1.5;
+        for (const h of p.handles) {
+          const q = toScreenXY(h.x, h.y), active = h.key === (state.drag?.key ?? p.activeHandle);
+          ctx.fillStyle = active ? '#5fd4a6' : '#0e1821'; ctx.strokeStyle = active ? '#5fd4a6' : '#ffffff';
+          ctx.fillRect(q.x - 5, q.y - 5, 10, 10); ctx.strokeRect(q.x - 5, q.y - 5, 10, 10);
+        }
+        ctx.restore();
+      }
       // rascunho do desenho (linha elástica)
-      const editor = p.mode === '2D' && PICK_TOOLS.includes(p.tool);
+      const editor = (p.mode === '2D' && PICK_TOOLS.includes(p.tool)) || !!state.drag;
       let target = null;
       if (state.pointer) {
         const snap = editor ? snapAt(state.pointer.x, state.pointer.y) : null;
@@ -172,12 +183,52 @@ export default function ViewportV4(props) {
     }
     el.addEventListener('wheel', wheel, {passive: false});
     const observer = new ResizeObserver(resize); observer.observe(el);
-    const move = e => { const r = el.getBoundingClientRect(); state.pointer = {x: e.clientX - r.left, y: e.clientY - r.top}; invalidate(); };
+    const handleAt = (x, y, radius = 8) => {
+      const p = latest.current; if (p.mode !== '2D' || p.tool !== 'orbit' || !p.handles?.length) return null;
+      let best = null, bd = radius;
+      for (const h of p.handles) { const q = toScreenXY(h.x, h.y), d = Math.hypot(q.x - x, q.y - y); if (d < bd) { bd = d; best = h; } }
+      return best;
+    };
+    const segmentAt = (x, y, radius = 6) => {
+      const p = latest.current; if (p.mode !== '2D' || p.tool !== 'orbit' || !p.segments?.length) return null;
+      let best = null, bd = radius;
+      for (const sg of p.segments) {
+        const a = toScreenXY(sg.a.x, sg.a.y), b = toScreenXY(sg.b.x, sg.b.y), dx = b.x - a.x, dy = b.y - a.y;
+        const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / (dx * dx + dy * dy || 1))), d = Math.hypot(x - a.x - t * dx, y - a.y - t * dy);
+        if (d < bd) { bd = d; best = sg; }
+      }
+      return best;
+    };
+    const dragDown = e => {
+      if (e.button !== 0) return;
+      const r = el.getBoundingClientRect(), h = handleAt(e.clientX - r.left, e.clientY - r.top); if (!h) return;
+      e.stopPropagation(); e.preventDefault();
+      state.drag = {key: h.key, x: h.x, y: h.y}; state.dragPos = {x: h.x, y: h.y}; state.ignoreUp = true; controls.enabled = false;
+      latest.current.onHandleDrag?.(h.key, {x: h.x, y: h.y}, 'start'); invalidate();
+    };
+    const dragTo = (x, y, free) => {
+      let s = free ? null : snapAt(x, y);
+      if (s && Math.hypot(s.x - state.drag.x, s.y - state.drag.y) < 1e-9) s = null; // não atrair para a própria posição antiga
+      const w = s ? {x: s.x, y: s.y} : planCoordinate(x, y); if (!w) return;
+      state.dragPos = w;
+      if (!state.dragFrame) state.dragFrame = requestAnimationFrame(() => { state.dragFrame = 0; if (state.drag) latest.current.onHandleDrag?.(state.drag.key, state.dragPos, 'move'); });
+    };
+    const dragUp = () => {
+      if (!state.drag) return;
+      cancelAnimationFrame(state.dragFrame); state.dragFrame = 0;
+      const {key} = state.drag; state.drag = null; controls.enabled = true;
+      latest.current.onHandleDrag?.(key, state.dragPos, 'end'); invalidate();
+    };
+    const dragKey = e => { if (e.key === 'Escape' && state.drag) { const {key, x, y} = state.drag; state.drag = null; controls.enabled = true; latest.current.onHandleDrag?.(key, {x, y}, 'cancel'); invalidate(); } };
+    const contextMenu = e => { const r = el.getBoundingClientRect(), h = handleAt(e.clientX - r.left, e.clientY - r.top); if (h) { e.preventDefault(); latest.current.onHandleRemove?.(h.key); } };
+    el.addEventListener('pointerdown', dragDown, {capture: true}); window.addEventListener('pointerup', dragUp); window.addEventListener('keydown', dragKey); el.addEventListener('contextmenu', contextMenu);
+    const move = e => { const r = el.getBoundingClientRect(); state.pointer = {x: e.clientX - r.left, y: e.clientY - r.top}; if (state.drag) dragTo(state.pointer.x, state.pointer.y, e.altKey); invalidate(); };
     const leave = () => { state.pointer = null; state.snap = null; if (cursor.current) cursor.current.style.display = 'none'; invalidate(); };
     let down;
     const start = e => { down = {x: e.clientX, y: e.clientY, button: e.button}; };
     const end = e => {
       const p = latest.current;
+      if (state.ignoreUp) { state.ignoreUp = false; return; }
       if (!down || down.button !== 0 || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4 || p.mode !== '2D') return;
       const r = el.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
       if (PICK_TOOLS.includes(p.tool)) {
@@ -197,6 +248,7 @@ export default function ViewportV4(props) {
         if (best) p.onEdge(best.a, best.b);
         return;
       }
+      if (p.tool === 'orbit' && !handleAt(x, y)) { const sg = segmentAt(x, y); if (sg && p.onSegmentInsert) { const w = planCoordinate(x, y); if (w) p.onSegmentInsert(sg.key, w); return; } }
       if (p.tool === 'orbit' && p.onPlanClick) { const w = planCoordinate(x, y); if (w) p.onPlanClick(w); }
     };
     el.addEventListener('pointermove', move); el.addEventListener('pointerleave', leave);
@@ -205,6 +257,7 @@ export default function ViewportV4(props) {
     renderer.domElement.addEventListener('webglcontextlost', lost);
     return () => {
       cancelAnimationFrame(state.frame); cancelAnimationFrame(state.zoomFrame); cancelAnimationFrame(state.inertia); observer.disconnect(); controls.dispose();
+      el.removeEventListener('pointerdown', dragDown, {capture: true}); window.removeEventListener('pointerup', dragUp); window.removeEventListener('keydown', dragKey); el.removeEventListener('contextmenu', contextMenu); cancelAnimationFrame(state.dragFrame);
       el.removeEventListener('wheel', wheel); el.removeEventListener('pointermove', move); el.removeEventListener('pointerleave', leave);
       disposeScene(state.scene); renderer.dispose(); renderer.domElement.remove(); runtime.current = null;
     };
@@ -268,67 +321,14 @@ export default function ViewportV4(props) {
     if (mode === '2D' && layers.breaklines) lines(constraints, '#ffbd70');
     if (mode === '2D' && layers.border) lines(r.edges.filter(e => e.faces.length === 1).map(e => [e.a, e.b]), '#a9e6ce');
     if (mode === '2D' && boundary.length) lines(boundary.map((i, k) => [i, boundary[(k + 1) % boundary.length]]), '#67c4ff');
-    // ---- Projeto: linhas de projeto ----
-    function drawLine(d) {
-      const {line, mesh: m} = d, sel = line.id === selectedLine, base = m.base || [];
-      if (base.length < 2) return;
-      if (mode === '3D') {
-        if (m.triangles.length) {
-          const pos = new Float32Array(m.triangles.length * 9), col = new Float32Array(m.triangles.length * 9), c = new THREE.Color();
-          m.triangles.forEach((t, k) => { c.set(DESIGN_COLORS[m.types[k]] || '#b9c0c7'); t.forEach((i, j) => { const v = m.vertices[i]; world(v.x, v.y, v.z + lift * .5).toArray(pos, k * 9 + j * 3); c.toArray(col, k * 9 + j * 3); }); });
-          const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
-          scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({vertexColors: true, side: THREE.DoubleSide, roughness: .85, flatShading: true})));
-        }
-        (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y, v.z + lift)), line.closed), '#7dffb0', 1, true));
-        (m.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y, v.z + lift))), '#ffd27a', .95, true));
-        segments(polyline(base.map(v => world(v.x, v.y, v.z + lift)), line.closed), sel ? '#ffffff' : '#ffe9a8', 1, true);
-        return;
-      }
-      const cutHatch = [], fillHatch = [];
-      m.hatch.forEach(([a, b, md]) => (md === 'cut' ? cutHatch : fillHatch).push(world(a.x, a.y), world(b.x, b.y)));
-      segments(cutHatch, '#ff9f6b', .8); segments(fillHatch, '#6fc3ff', .8);
-      (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y)), line.closed), '#7dffb0'));
-      (m.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y))), '#ffd27a', .7));
-      segments(polyline(base.map(v => world(v.x, v.y)), line.closed), sel ? '#ffffff' : '#ffe08a');
-      // PIs como quadrados e estacas ao longo da linha
-      const piPos = new Float32Array(line.pis.length * 3); line.pis.forEach((p, i) => world(p.x, p.y).toArray(piPos, i * 3));
-      scene.add(new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(piPos, 3)), new THREE.PointsMaterial({size: sel ? 9 : 7, color: sel ? '#ffffff' : '#ffe08a', sizeAttenuation: false, depthTest: false})));
-      line.pis.forEach((p, i) => r.textLabels.push({v: world(p.x, p.y), text: `PI${i + 1}`, color: sel ? '#ffffff' : '#ffe9a8', dx: 6, dy: -10}));
-      const step = (m.length || 0) > 400 ? 100 : 20;
-      for (let st = step; st < (m.length || 0) - 1e-6; st += step) {
-        let k = 1; while (k < base.length - 1 && base[k].s < st) k++;
-        const a = base[k - 1], b = base[k], t = b.s > a.s ? (st - a.s) / (b.s - a.s) : 0;
-        r.textLabels.push({v: world(a.x + t * (b.x - a.x), a.y + t * (b.y - a.y)), text: `${Math.floor(st / 1000)}+${String(Math.round(st % 1000)).padStart(3, '0')}`, color: '#c9b37a', dx: 4, dy: 10});
-      }
-      r.textLabels.push({v: world(base[0].x, base[0].y), text: line.name, color: sel ? '#ffffff' : '#ffe9a8', dx: 6, dy: 14});
-    }
-    // ---- Projeto: plataformas e taludes ----
-    for (const d of designs || []) {
-      if (d.kind === 'line') { drawLine(d); continue; }
-      const sel = d.platform.id === selectedPlatform;
-      if (mode === '3D') {
-        const pos = new Float32Array(d.mesh.triangles.length * 9), col = new Float32Array(d.mesh.triangles.length * 9), c = new THREE.Color();
-        d.mesh.triangles.forEach((t, k) => { c.set(DESIGN_COLORS[d.mesh.types[k]] || '#b9c0c7'); t.forEach((i, j) => { const v = d.mesh.vertices[i]; world(v.x, v.y, v.z + lift * .5).toArray(pos, k * 9 + j * 3); c.toArray(col, k * 9 + j * 3); }); });
-        const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
-        scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({vertexColors: true, side: THREE.DoubleSide, roughness: .85, flatShading: true})));
-        segments(polyline(d.mesh.daylight.map(v => world(v.x, v.y, v.z + lift)), true), '#7dffb0', 1, true);
-        segments(polyline(d.platform.polygon.map(v => world(v.x, v.y, (Number.isFinite(v.z) ? v.z : d.platform.elevation) + lift)), true), sel ? '#ffffff' : '#e7edf2', 1, true);
-        (d.mesh.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y, v.z + lift))), '#ffd27a', .95, true));
-      } else {
-        const pos = new Float32Array(d.mesh.triangles.length * 9); let k = 0;
-        d.mesh.triangles.forEach((t, n) => { if (d.mesh.types[n] !== 'platform') return; t.forEach(i => { const v = d.mesh.vertices[i]; world(v.x, v.y).toArray(pos, k); k += 3; }); });
-        const g2 = new THREE.BufferGeometry(); g2.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, k), 3));
-        scene.add(new THREE.Mesh(g2, new THREE.MeshBasicMaterial({color: sel ? '#d7dee5' : '#9aa7b2', transparent: true, opacity: sel ? .45 : .3, side: THREE.DoubleSide, depthTest: false})));
-        const cutHatch = [], fillHatch = [];
-        d.mesh.hatch.forEach(([a, b, m]) => (m === 'cut' ? cutHatch : fillHatch).push(world(a.x, a.y), world(b.x, b.y)));
-        segments(cutHatch, '#ff9f6b', .8); segments(fillHatch, '#6fc3ff', .8);
-        segments(polyline(d.mesh.daylight.map(v => world(v.x, v.y)), true), '#7dffb0');
-        (d.mesh.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y))), '#ffd27a', .7));
-        segments(polyline(d.platform.polygon.map(v => world(v.x, v.y)), true), sel ? '#ffffff' : '#e7edf2');
-        const c = d.platform.polygon.reduce((s, v) => ({x: s.x + v.x / d.platform.polygon.length, y: s.y + v.y / d.platform.polygon.length}), {x: 0, y: 0});
-        r.textLabels.push({v: world(c.x, c.y), text: `${d.platform.name} · ${d.platform.polygon.some(v => Number.isFinite(v.z) && Math.abs(v.z - d.platform.elevation) > 1e-9) ? 'rampa ' + Math.min(...d.platform.polygon.map(v => Number.isFinite(v.z) ? v.z : d.platform.elevation)).toFixed(2) + '–' + Math.max(...d.platform.polygon.map(v => Number.isFinite(v.z) ? v.z : d.platform.elevation)).toFixed(2) : d.platform.elevation.toFixed(2)}`, color: sel ? '#ffffff' : '#dfe7ee', dx: -40});
-      }
-    }
+    // ---- Projeto (plataformas e linhas): camada própria, redesenhada sozinha durante o arraste ----
+    r.world = world; r.lift = lift; r.mode = mode; r.segmentsTo = (target, vectors, color, opacity = 1, depthTest = false) => {
+      if (!vectors.length) return;
+      const positions = new Float32Array(vectors.length * 3); vectors.forEach((v, i) => v.toArray(positions, i * 3));
+      target.add(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(positions, 3)), new THREE.LineBasicMaterial({color, transparent: opacity < 1, opacity, depthTest})));
+    };
+    r.designGroup = new THREE.Group(); scene.add(r.designGroup); r.designLabels = [];
+    drawDesigns(r, latest.current);
     // ---- Eixo, seções e greide ----
     if (mode === '2D') {
       if (alignment.length > 1) {
@@ -359,14 +359,16 @@ export default function ViewportV4(props) {
     };
     if (mode === '2D' && layers.points) makePoints(visibleIndices, 5);
     r.resize(); r.invalidate();
-  }, [props.points, props.triangles, props.mode, props.presentation, props.fitKey, props.contours, props.contourStyle?.visible2D, props.contourStyle?.visible3D, props.designs, props.selectedPlatform, props.selectedLine,
+  }, [props.points, props.triangles, props.mode, props.presentation, props.fitKey, props.contours, props.contourStyle?.visible2D, props.contourStyle?.visible3D,
     plan ? props.constraints : null, plan ? props.visibleIndices : null, plan ? props.layers : null, plan ? props.groupColors : null, plan ? props.boundary : null,
     plan ? props.alignment : null, plan ? props.sectionLines : null, plan ? props.currentStation : null,
     plan ? null : props.terrain3D, plan ? null : props.designAt, plan ? null : props.profileSamples, plan ? null : props.referenceZ, plan ? null : props.gradeLine3D]);
+  // camada de projeto: redesenha só ela quando plataformas/linhas mudam (arraste fluido, sem refazer o terreno)
+  useEffect(() => { const r = runtime.current; if (!r?.designGroup) return; drawDesigns(r, props); r.invalidate(); }, [props.designs, props.selectedPlatform, props.selectedLine]);
   useEffect(() => {
     const r = runtime.current;
     if (r) { r.controls.enabled = props.tool === 'orbit' || props.mode === '3D' || PICK_TOOLS.includes(props.tool); r.renderer.domElement.style.cursor = props.mode === '2D' && props.crosshair ? 'none' : 'grab'; r.invalidate(); }
-  }, [props.style, props.crosshair, props.snap, props.tool, props.contourStyle?.labels, props.pickDraft, props.selected, props.snapIndex, props.snapModes, props.snapAperture]);
+  }, [props.style, props.crosshair, props.snap, props.tool, props.contourStyle?.labels, props.pickDraft, props.selected, props.snapIndex, props.snapModes, props.snapAperture, props.handles, props.activeHandle]);
   return <div className="viewport" ref={host}>
     <canvas className="label-overlay" ref={labels} aria-hidden="true"/>
     <div className="cad-crosshair" ref={cursor} aria-hidden="true"><i className="cross-x"/><i className="cross-y"/><i className="pickbox"/></div>
@@ -382,4 +384,74 @@ function hypsometric(t, style, out) {
   for (let i = 1; i < HYPSO.length; i++) if (t <= HYPSO[i][0]) return out.copy(HYPSO[i - 1][1]).lerp(HYPSO[i][1], (t - HYPSO[i - 1][0]) / (HYPSO[i][0] - HYPSO[i - 1][0]));
   return out.copy(HYPSO.at(-1)[1]);
 }
+/** Desenha plataformas e linhas de projeto no grupo próprio da cena (sem reconstruir o terreno). */
+function drawDesigns(r, props) {
+  const group = r.designGroup; if (!group) return;
+  group.traverse(o => { if (o !== group) { o.geometry?.dispose(); o.material?.dispose(); } }); group.clear();
+  const labels = r.designLabels = [], {designs, selectedPlatform, selectedLine} = props, mode = r.mode, world = r.world, lift = r.lift;
+  const segments = (vectors, color, opacity = 1, depthTest = false) => r.segmentsTo(group, vectors, color, opacity, depthTest);
+  const polyline = (coords, closed = false) => { const out = []; for (let i = 1; i < coords.length; i++) out.push(coords[i - 1], coords[i]); if (closed && coords.length > 2) out.push(coords.at(-1), coords[0]); return out; };
+    // ---- Projeto: linhas de projeto ----
+  function drawLine(d) {
+    const {line, mesh: m} = d, sel = line.id === selectedLine, base = m.base || [];
+    if (base.length < 2) return;
+    if (mode === '3D') {
+      if (m.triangles.length) {
+        const pos = new Float32Array(m.triangles.length * 9), col = new Float32Array(m.triangles.length * 9), c = new THREE.Color();
+        m.triangles.forEach((t, k) => { c.set(DESIGN_COLORS[m.types[k]] || '#b9c0c7'); t.forEach((i, j) => { const v = m.vertices[i]; world(v.x, v.y, v.z + lift * .5).toArray(pos, k * 9 + j * 3); c.toArray(col, k * 9 + j * 3); }); });
+        const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
+        group.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({vertexColors: true, side: THREE.DoubleSide, roughness: .85, flatShading: true})));
+      }
+      (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y, v.z + lift)), line.closed), '#7dffb0', 1, true));
+      (m.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y, v.z + lift))), '#ffd27a', .95, true));
+      segments(polyline(base.map(v => world(v.x, v.y, v.z + lift)), line.closed), sel ? '#ffffff' : '#ffe9a8', 1, true);
+      return;
+    }
+    const cutHatch = [], fillHatch = [];
+    m.hatch.forEach(([a, b, md]) => (md === 'cut' ? cutHatch : fillHatch).push(world(a.x, a.y), world(b.x, b.y)));
+    segments(cutHatch, '#ff9f6b', .8); segments(fillHatch, '#6fc3ff', .8);
+    (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y)), line.closed), '#7dffb0'));
+    (m.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y))), '#ffd27a', .7));
+    segments(polyline(base.map(v => world(v.x, v.y)), line.closed), sel ? '#ffffff' : '#ffe08a');
+    // PIs como quadrados e estacas ao longo da linha
+    const piPos = new Float32Array(line.pis.length * 3); line.pis.forEach((p, i) => world(p.x, p.y).toArray(piPos, i * 3));
+    group.add(new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(piPos, 3)), new THREE.PointsMaterial({size: sel ? 9 : 7, color: sel ? '#ffffff' : '#ffe08a', sizeAttenuation: false, depthTest: false})));
+    line.pis.forEach((p, i) => labels.push({v: world(p.x, p.y), text: `PI${i + 1}`, color: sel ? '#ffffff' : '#ffe9a8', dx: 6, dy: -10}));
+    const step = (m.length || 0) > 400 ? 100 : 20;
+    for (let st = step; st < (m.length || 0) - 1e-6; st += step) {
+      let k = 1; while (k < base.length - 1 && base[k].s < st) k++;
+      const a = base[k - 1], b = base[k], t = b.s > a.s ? (st - a.s) / (b.s - a.s) : 0;
+      labels.push({v: world(a.x + t * (b.x - a.x), a.y + t * (b.y - a.y)), text: `${Math.floor(st / 1000)}+${String(Math.round(st % 1000)).padStart(3, '0')}`, color: '#c9b37a', dx: 4, dy: 10});
+    }
+    labels.push({v: world(base[0].x, base[0].y), text: line.name, color: sel ? '#ffffff' : '#ffe9a8', dx: 6, dy: 14});
+  }
+  // ---- Projeto: plataformas e taludes ----
+  for (const d of designs || []) {
+    if (d.kind === 'line') { drawLine(d); continue; }
+    const sel = d.platform.id === selectedPlatform;
+    if (mode === '3D') {
+      const pos = new Float32Array(d.mesh.triangles.length * 9), col = new Float32Array(d.mesh.triangles.length * 9), c = new THREE.Color();
+      d.mesh.triangles.forEach((t, k) => { c.set(DESIGN_COLORS[d.mesh.types[k]] || '#b9c0c7'); t.forEach((i, j) => { const v = d.mesh.vertices[i]; world(v.x, v.y, v.z + lift * .5).toArray(pos, k * 9 + j * 3); c.toArray(col, k * 9 + j * 3); }); });
+      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
+      group.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({vertexColors: true, side: THREE.DoubleSide, roughness: .85, flatShading: true})));
+      segments(polyline(d.mesh.daylight.map(v => world(v.x, v.y, v.z + lift)), true), '#7dffb0', 1, true);
+      segments(polyline(d.platform.polygon.map(v => world(v.x, v.y, (Number.isFinite(v.z) ? v.z : d.platform.elevation) + lift)), true), sel ? '#ffffff' : '#e7edf2', 1, true);
+      (d.mesh.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y, v.z + lift))), '#ffd27a', .95, true));
+    } else {
+      const pos = new Float32Array(d.mesh.triangles.length * 9); let k = 0;
+      d.mesh.triangles.forEach((t, n) => { if (d.mesh.types[n] !== 'platform') return; t.forEach(i => { const v = d.mesh.vertices[i]; world(v.x, v.y).toArray(pos, k); k += 3; }); });
+      const g2 = new THREE.BufferGeometry(); g2.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, k), 3));
+      group.add(new THREE.Mesh(g2, new THREE.MeshBasicMaterial({color: sel ? '#d7dee5' : '#9aa7b2', transparent: true, opacity: sel ? .45 : .3, side: THREE.DoubleSide, depthTest: false})));
+      const cutHatch = [], fillHatch = [];
+      d.mesh.hatch.forEach(([a, b, m]) => (m === 'cut' ? cutHatch : fillHatch).push(world(a.x, a.y), world(b.x, b.y)));
+      segments(cutHatch, '#ff9f6b', .8); segments(fillHatch, '#6fc3ff', .8);
+      segments(polyline(d.mesh.daylight.map(v => world(v.x, v.y)), true), '#7dffb0');
+      (d.mesh.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y))), '#ffd27a', .7));
+      segments(polyline(d.platform.polygon.map(v => world(v.x, v.y)), true), sel ? '#ffffff' : '#e7edf2');
+      const c = d.platform.polygon.reduce((s, v) => ({x: s.x + v.x / d.platform.polygon.length, y: s.y + v.y / d.platform.polygon.length}), {x: 0, y: 0});
+      labels.push({v: world(c.x, c.y), text: `${d.platform.name} · ${d.platform.polygon.some(v => Number.isFinite(v.z) && Math.abs(v.z - d.platform.elevation) > 1e-9) ? 'rampa ' + Math.min(...d.platform.polygon.map(v => Number.isFinite(v.z) ? v.z : d.platform.elevation)).toFixed(2) + '–' + Math.max(...d.platform.polygon.map(v => Number.isFinite(v.z) ? v.z : d.platform.elevation)).toFixed(2) : d.platform.elevation.toFixed(2)}`, color: sel ? '#ffffff' : '#dfe7ee', dx: -40});
+    }
+  }
+}
+
 function disposeScene(scene) { scene.traverse(o => { o.geometry?.dispose(); if (o.material) { o.material.map?.dispose(); o.material.dispose(); } }); scene.clear(); }

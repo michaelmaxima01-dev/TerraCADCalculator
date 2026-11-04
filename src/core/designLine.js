@@ -14,6 +14,35 @@ function segmentsCross(a, b, c, d) {
   return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0;
 }
 
+/** Vértices sem repetição e sem auto-cruzamento (lança Error em português). */
+export function checkVertices(pts, closed) {
+  const n = pts.length, segs = closed ? n : n - 1;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) < 1e-6) throw Error(`PIs repetidos (${i + 1} e ${j + 1}). Remova um deles.`);
+  for (let i = 0; i < segs; i++) for (let j = i + 2; j < segs; j++) {
+    if (closed && i === 0 && j === segs - 1) continue;
+    if (segmentsCross(pts[i], pts[(i + 1) % n], pts[j], pts[(j + 1) % n])) throw Error('A linha cruza a si mesma. Mova os PIs para desfazer o cruzamento.');
+  }
+  return pts;
+}
+
+/** Move o vértice i para p (mantém cota e raio); recusa se repetir ou cruzar. Não altera a lista original. */
+export function moveVertex(vertices, i, p, {closed}) {
+  return checkVertices(vertices.map((v, k) => k === i ? {...v, x: p.x, y: p.y} : v), closed);
+}
+/** Insere um vértice em p no trecho que começa no vértice `seg` (cota interpolada quando os dois lados têm cota). */
+export function insertVertex(vertices, seg, p, {closed}) {
+  const n = vertices.length, a = vertices[seg], b = vertices[(seg + 1) % n], dx = b.x - a.x, dy = b.y - a.y;
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+  const v = {x: p.x, y: p.y}; if (Number.isFinite(a.z) && Number.isFinite(b.z)) v.z = a.z + t * (b.z - a.z);
+  return checkVertices([...vertices.slice(0, seg + 1), v, ...vertices.slice(seg + 1)], closed);
+}
+/** Remove o vértice i respeitando o mínimo (2 na aberta, 3 na fechada). */
+export function removeVertex(vertices, i, {closed}) {
+  const min = closed ? 3 : 2;
+  if (vertices.length <= min) throw Error(`A ${closed ? 'linha fechada ou plataforma' : 'linha'} precisa de pelo menos ${min} vértices.`);
+  return checkVertices(vertices.filter((_, k) => k !== i), closed);
+}
+
 /** Normaliza e valida uma linha de projeto (lança Error com a orientação em português). */
 export function validateDesignLine(l) {
   if (!l || typeof l !== 'object') throw Error('Linha de projeto inválida.');
@@ -26,12 +55,7 @@ export function validateDesignLine(l) {
     if (p.radius !== undefined && p.radius !== null && p.radius !== '' && Number(p.radius) !== 0) { if (!(Number(p.radius) > 0)) throw Error(`Raio inválido no PI ${i + 1}: use um valor maior que zero.`); q.radius = Number(p.radius); }
     return q;
   });
-  const n = pis.length, segs = closed ? n : n - 1;
-  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (Math.hypot(pis[i].x - pis[j].x, pis[i].y - pis[j].y) < 1e-6) throw Error(`PIs repetidos (${i + 1} e ${j + 1}). Remova um deles.`);
-  for (let i = 0; i < segs; i++) for (let j = i + 2; j < segs; j++) {
-    if (closed && i === 0 && j === segs - 1) continue;
-    if (segmentsCross(pis[i], pis[(i + 1) % n], pis[j], pis[(j + 1) % n])) throw Error('A linha cruza a si mesma. Mova os PIs para desfazer o cruzamento.');
-  }
+  checkVertices(pis, closed);
   const e = l.elevation || {}, mode = e.mode ?? 'ramp';
   if (!ELEV_MODES.includes(mode)) throw Error('Modo de cota da linha inválido.');
   const elevation = {mode, start: num(e.start, 0), slope: num(e.slope, 0), drop: num(e.drop, 0)};
@@ -111,25 +135,57 @@ export function buildLineBase(line, terrainAt = null) {
   return {base, length, closed, curves, warnings, piStations, piZ: piStations.map(zAt)};
 }
 
+// Índice em grade dos trechos da base (acelera o ponto mais próximo nas integrações de volume)
+const indexes = new WeakMap();
+function segmentIndex(info) {
+  let ix = indexes.get(info); if (ix) return ix;
+  const {base, closed} = info, n = base.length, segs = closed ? n : n - 1;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const v of base) { if (v.x < minX) minX = v.x; if (v.x > maxX) maxX = v.x; if (v.y < minY) minY = v.y; if (v.y > maxY) maxY = v.y; }
+  const cell = Math.max(Math.max(maxX - minX, maxY - minY, 1e-6) / Math.max(1, Math.sqrt(segs) * 2), 1e-6);
+  const cells = new Map(), key = (i, j) => i * 73856093 ^ j * 19349663;
+  for (let i = 0; i < segs; i++) {
+    const a = base[i], b = base[(i + 1) % n];
+    const i0 = Math.floor((Math.min(a.x, b.x) - minX) / cell), i1 = Math.floor((Math.max(a.x, b.x) - minX) / cell);
+    const j0 = Math.floor((Math.min(a.y, b.y) - minY) / cell), j1 = Math.floor((Math.max(a.y, b.y) - minY) / cell);
+    for (let u = i0; u <= i1; u++) for (let w = j0; w <= j1; w++) { const k = key(u, w); let l = cells.get(k); if (!l) cells.set(k, l = []); l.push(i); }
+  }
+  ix = {minX, minY, cell, cells, key, ni: Math.floor((maxX - minX) / cell), nj: Math.floor((maxY - minY) / cell), segs, stamp: new Int32Array(segs), tick: 0, lx: NaN, ly: NaN, last: null};
+  indexes.set(info, ix); return ix;
+}
+
 /**
  * Ponto mais próximo na base: distância, cota, estaca, lado (no sentido do traçado) e se cai além das pontas.
  * @returns {{d:number, z:number, s:number, side:'left'|'right', atEnd:boolean}}
  */
-export function lineNearest(info, x, y) {
+export function lineNearest(info, x, y, {brute = false} = {}) {
   const {base, closed} = info, n = base.length;
-  let best = {d: Infinity, z: 0, s: 0, side: 'right', atEnd: false};
+  let best = {d: Infinity, z: 0, s: 0, side: 'right', atEnd: false}, bi = -1;
   if (n < 2) return best;
   const segs = closed ? n : n - 1;
-  for (let i = 0; i < segs; i++) {
+  const visit = i => {
     const a = base[i], b = base[(i + 1) % n], dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy || 1e-30;
     const raw = ((x - a.x) * dx + (y - a.y) * dy) / L2, t = Math.max(0, Math.min(1, raw));
     const d = Math.hypot(x - a.x - t * dx, y - a.y - t * dy);
-    if (d < best.d - 1e-12) {
-      const len = Math.sqrt(L2), sa = a.s, sb = i + 1 < n ? b.s : info.length;
+    if (d < best.d - 1e-12 || (Math.abs(d - best.d) <= 1e-12 && i < bi)) { // empate: o trecho de menor índice (igual à busca completa)
+      const sa = a.s, sb = i + 1 < n ? b.s : info.length;
       best = {d, z: a.z + t * (b.z - a.z), s: sa + t * (sb - sa), side: cross2(dx, dy, x - a.x, y - a.y) > 0 ? 'left' : 'right',
-        atEnd: !closed && ((i === 0 && raw < -1e-9) || (i === segs - 1 && raw > 1 + 1e-9)), len};
+        atEnd: !closed && ((i === 0 && raw < -1e-9) || (i === segs - 1 && raw > 1 + 1e-9))}; bi = i;
     }
+  };
+  if (brute || segs < 16) { for (let i = 0; i < segs; i++) visit(i); return best; }
+  const ix = segmentIndex(info);
+  if (x === ix.lx && y === ix.ly) return {...ix.last}; // mesma consulta repetida (ex.: refinamento e cota na mesma célula)
+  const ci = Math.floor((x - ix.minX) / ix.cell), cj = Math.floor((y - ix.minY) / ix.cell), tick = ++ix.tick;
+  if (tick > 2e9) { ix.stamp.fill(0); ix.tick = 1; }
+  const far = Math.max(Math.abs(ci), Math.abs(cj), Math.abs(ci - ix.ni), Math.abs(cj - ix.nj)) + 1;
+  const scan = (u, w) => { const l = ix.cells.get(ix.key(u, w)); if (l) for (const i of l) if (ix.stamp[i] !== ix.tick) { ix.stamp[i] = ix.tick; visit(i); } };
+  for (let r = 0; r <= far; r++) {
+    if (r === 0) scan(ci, cj);
+    else { for (let u = ci - r; u <= ci + r; u++) { scan(u, cj - r); scan(u, cj + r); } for (let w = cj - r + 1; w <= cj + r - 1; w++) { scan(ci - r, w); scan(ci + r, w); } }
+    // tudo que falta está a pelo menos r·cell do ponto: pode parar quando o melhor já é mais perto (com folga de empate)
+    if (best.d + 1e-9 < r * ix.cell) break;
   }
-  delete best.len;
-  return best;
+  ix.lx = x; ix.ly = y; ix.last = best;
+  return {...best};
 }

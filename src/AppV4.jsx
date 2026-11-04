@@ -18,7 +18,7 @@ import {gradeGeometry, gradeElevation, sampleGrade} from './core/grade';
 import {drapeBreakline} from './core/breaklines';
 import {gradePlatform, platformVolumes, designSurfaceFunction, validatePolygon, validatePlatform, meanTerrainInside, clipTerrainMesh, shiftPlatform, applyPlaneSlope, flattenPlatform, isRamp, platformVertexZ, BENCH_DEFAULT} from './core/grading';
 import {pointAtStation, sectionStations, sampleSection, averageEndArea} from './core/sections';
-import {validateDesignLine} from './core/designLine';
+import {validateDesignLine, moveVertex, insertVertex, removeVertex} from './core/designLine';
 import {gradeLine, lineVolumes} from './core/lineGrading';
 import {createSnapIndex} from './core/snap';
 import {toDXF, toLandXML, toCSV} from './core/exporters';
@@ -92,13 +92,30 @@ export default function AppV4() {
   const [showTable, setShowTable] = useState(false), [showProfileDock, setShowProfileDock] = useState(true), [help, setHelp] = useState(false), [revision, setRevision] = useState(0), [cadImport, setCadImport] = useState(null), [rampDraft, setRampDraft] = useState({}), [openSub, setOpenSub] = useState({}), [inspectorOpen, setInspectorOpen] = useState(() => typeof window === 'undefined' || window.innerWidth > 900);
   const [contourStyle, setContourStyle] = useState(defaultContours), [contourDraft, setContourDraft] = useState({interval: '1', majorEvery: '5'});
   const [referenceDraft, setReferenceDraft] = useState(''), [dxfOptions, setDxfOptions] = useState({tin: true, points: true, labels: true, contours: true, design: true, grade: true, sections: false});
-  const [selectedPlatform, setSelectedPlatform] = useState(null), [sectionSettings, setSectionSettings] = useState({interval: 20, halfWidth: 30}), [sectionIndex, setSectionIndex] = useState(0), [equalScale, setEqualScale] = useState(false);
+  const [selectedPlatform, setSelectedPlatformRaw] = useState(null), [sectionSettings, setSectionSettings] = useState({interval: 20, halfWidth: 30}), [sectionIndex, setSectionIndex] = useState(0), [equalScale, setEqualScale] = useState(false);
   const [viewportH, setViewportH] = useState(() => typeof window === 'undefined' ? 900 : window.innerHeight);
   useEffect(() => { const r = () => setViewportH(window.innerHeight); window.addEventListener('resize', r); return () => window.removeEventListener('resize', r); }, []);
   const license = useLicense(), [adminOpen, setAdminOpen] = useState(false);
   const {run, busy} = useGeometry(); const pointFile = useRef(), projectFile = useRef();
   const {points, mesh, breaklines, boundary, maxEdge, alignment, grade, platforms} = doc, designLines = doc.designLines || [];
-  const [selectedLine, setSelectedLine] = useState(null);
+  const [selectedLine, setSelectedLineRaw] = useState(null), [dragDraft, setDragDraft] = useState(null), [activeHandle, setActiveHandle] = useState(null);
+  const setSelectedPlatform = id => { setSelectedPlatformRaw(id); if (id) setSelectedLineRaw(null); setActiveHandle(null); };
+  /** Linha e plataforma não ficam selecionadas ao mesmo tempo (as alças de edição são de um objeto só). */
+  const setSelectedLine = id => { setSelectedLineRaw(id); if (id) setSelectedPlatformRaw(null); setActiveHandle(null); };
+  // durante o arraste, a geometria do rascunho substitui a do documento (cálculo em grade reduzida)
+  const liveLines = useMemo(() => dragDraft?.kind === 'line' ? designLines.map(l => l.id === dragDraft.id ? {...l, pis: dragDraft.vertices} : l) : designLines, [designLines, dragDraft]);
+  const livePlatforms = useMemo(() => dragDraft?.kind === 'platform' ? platforms.map(p => p.id === dragDraft.id ? {...p, polygon: dragDraft.vertices} : p) : platforms, [platforms, dragDraft]);
+  const dragCells = dragDraft ? 12000 : undefined; // grade reduzida no arraste (≤ 30 mil); cálculo completo ao soltar
+  // no arraste a malha acompanha cada quadro; o volume é refeito a cada ~0,2 s (rascunho amostrado)
+  const [volDraft, setVolDraft] = useState(null), volTimer = useRef(null), lastDraft = useRef(null);
+  lastDraft.current = dragDraft;
+  useEffect(() => {
+    if (!dragDraft) { clearTimeout(volTimer.current); volTimer.current = null; setVolDraft(null); return; }
+    if (!volTimer.current) volTimer.current = setTimeout(() => { volTimer.current = null; setVolDraft(lastDraft.current); }, 200);
+  }, [dragDraft]);
+  const volDraftEff = dragDraft ? (volDraft || dragDraft) : null;
+  const volLines = useMemo(() => volDraftEff?.kind === 'line' ? designLines.map(l => l.id === volDraftEff.id ? {...l, pis: volDraftEff.vertices} : l) : designLines, [designLines, volDraftEff]);
+  const volPlatforms = useMemo(() => volDraftEff?.kind === 'platform' ? platforms.map(p => p.id === volDraftEff.id ? {...p, polygon: volDraftEff.vertices} : p) : platforms, [platforms, volDraftEff]);
 
   // ---------- dados derivados ----------
   const groups = useMemo(() => pointGroups(points), [points]);
@@ -116,15 +133,24 @@ export default function AppV4() {
   const profile = useMemo(() => { try { return alignment.length > 1 && ctx ? sampleProfile(points, mesh.triangles, alignment, ctx) : null; } catch { return null; } }, [points, mesh.triangles, alignment, ctx]);
   const gradeGeo = useMemo(() => { try { return gradeGeometry(grade); } catch { return gradeGeometry([]); } }, [grade]);
   const gradeAt = useCallback(s => gradeGeo.pvis.length > 1 ? gradeElevation(gradeGeo, s) : null, [gradeGeo]);
-  const designs = useMemo(() => !elevationAt ? [] : [...platforms.filter(p => p.visible !== false).map(p => {
-    try { return {kind: 'platform', platform: p, mesh: gradePlatform(points, mesh.triangles, p, {elevationAt}), volume: platformVolumes(points, mesh.triangles, p, {elevationAt})}; }
+  const designMeshes = useMemo(() => !elevationAt ? [] : [...livePlatforms.filter(p => p.visible !== false).map(p => {
+    try { return {kind: 'platform', platform: p, mesh: gradePlatform(points, mesh.triangles, p, {elevationAt})}; }
     catch (e) { return {kind: 'platform', platform: p, error: e.message}; }
-  }), ...designLines.filter(l => l.visible !== false).map(l => {
-    try { const m = gradeLine(points, mesh.triangles, l, {elevationAt}); return {kind: 'line', line: l, mesh: m, volume: m.base.length ? lineVolumes(points, mesh.triangles, l, {elevationAt}) : null}; }
+  }), ...liveLines.filter(l => l.visible !== false).map(l => {
+    try { return {kind: 'line', line: l, mesh: gradeLine(points, mesh.triangles, l, {elevationAt})}; }
     catch (e) { return {kind: 'line', line: l, error: e.message}; }
-  })], [points, mesh.triangles, platforms, designLines, elevationAt]);
+  })], [points, mesh.triangles, livePlatforms, liveLines, elevationAt]);
+  const designVolumes = useMemo(() => {
+    const out = new Map(); if (!elevationAt) return out;
+    for (const p of volPlatforms) if (p.visible !== false) { try { out.set('p:' + p.id, platformVolumes(points, mesh.triangles, p, {elevationAt, maxCells: dragCells})); } catch { /* erro já mostrado pela malha */ } }
+    for (const l of volLines) if (l.visible !== false) { try { out.set('l:' + l.id, lineVolumes(points, mesh.triangles, l, {elevationAt, maxCells: dragCells})); } catch { /* idem */ } }
+    return out;
+  }, [points, mesh.triangles, volPlatforms, volLines, elevationAt, dragCells]);
+  const designs = useMemo(() => designMeshes.map(d => d.error ? d : {...d, volume: d.kind === 'line' ? (d.mesh.base.length ? designVolumes.get('l:' + d.line.id) ?? null : null) : designVolumes.get('p:' + d.platform.id) ?? null}), [designMeshes, designVolumes]);
   const validDesigns = useMemo(() => designs.filter(d => d.mesh), [designs]);
+  const meshDesigns = useMemo(() => designMeshes.filter(d => d.mesh), [designMeshes]);
   const designAt = useMemo(() => elevationAt && validDesigns.length ? designSurfaceFunction(validDesigns.filter(d => d.kind === 'platform').map(d => d.platform), elevationAt, validDesigns.filter(d => d.kind === 'line').map(d => d.line)) : null, [elevationAt, validDesigns]);
+  const frozenDesignAt = useRef(null); if (!dragDraft) frozenDesignAt.current = designAt; // 3D só se refaz ao soltar o arraste
   const designProfile = useMemo(() => {
     if (!profile || !designAt) return null; const n = 400, out = [];
     for (let k = 0; k <= n; k++) { const s = profile.length * k / n, c = pointAtStation(alignment, s); out.push({station: s, z: c ? designAt(c.x, c.y) : null}); }
@@ -136,11 +162,11 @@ export default function AppV4() {
   const sectionTotals = useMemo(() => sections.length > 1 ? averageEndArea(sections) : null, [sections]);
   const currentStation = stationList.length ? stationList[Math.min(sectionIndex, stationList.length - 1)] : null;
   const terrain3D = useMemo(() => {
-    if (!designAt) return null;
+    if (!designAt || dragDraft) return null; // no arraste, o recorte do terreno 3D espera soltar
     const bounds = validDesigns.filter(d => d.mesh.vertices.length).map(d => { const xs = d.mesh.vertices.map(v => v.x), ys = d.mesh.vertices.map(v => v.y); return {minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys)}; });
     const span = Math.max(...bounds.map(b => Math.max(b.maxX - b.minX, b.maxY - b.minY)), 1);
     return clipTerrainMesh(points, mesh.triangles, (x, y) => designAt(x, y) !== null, {bounds, minEdge: span / 120});
-  }, [designAt, validDesigns, points, mesh.triangles]);
+  }, [designAt, validDesigns, points, mesh.triangles, dragDraft]);
   const gradeLine3D = useMemo(() => {
     if (!profile || gradeGeo.pvis.length < 2) return null;
     return sampleGrade(gradeGeo, Math.max(profile.length / 300, 0.1)).map(p => { const c = pointAtStation(alignment, p.station); return c && p.z !== null ? {x: c.x, y: c.y, z: p.z} : null; }).filter(Boolean);
@@ -256,6 +282,46 @@ export default function AppV4() {
     } catch (e) { setMessage(e.message); }
   }
   finishRef.current = finish;
+  // ---------- edição por alças (PIs da linha / vértices da plataforma) ----------
+  const editTarget = selectedLine && designLines.some(l => l.id === selectedLine) ? {kind: 'line', obj: designLines.find(l => l.id === selectedLine)}
+    : selectedPlatform && platforms.some(p => p.id === selectedPlatform) ? {kind: 'platform', obj: platforms.find(p => p.id === selectedPlatform)} : null;
+  const editVertices = t => t.kind === 'line' ? t.obj.pis : t.obj.polygon, editClosed = t => t.kind === 'line' ? t.obj.closed : true;
+  const handles = useMemo(() => {
+    if (!editTarget) return [];
+    const vs = dragDraft && dragDraft.id === editTarget.obj.id ? dragDraft.vertices : editVertices(editTarget);
+    return vs.map((v, i) => ({key: i, x: v.x, y: v.y}));
+  }, [editTarget?.obj, dragDraft]);
+  const handleSegments = useMemo(() => {
+    if (!editTarget) return [];
+    const vs = editVertices(editTarget), n = vs.length, closed = editClosed(editTarget);
+    return vs.slice(0, closed ? n : n - 1).map((a, i) => ({key: i, a, b: vs[(i + 1) % n]}));
+  }, [editTarget?.obj]);
+  function commitVertices(t, vertices, text) {
+    if (t.kind === 'line') updateLine(t.obj.id, {pis: vertices}, text);
+    else updatePlatform(t.obj.id, {polygon: vertices}, text);
+  }
+  const label = t => t.kind === 'line' ? 'PI' : 'Vértice';
+  const onHandleDrag = (key, p, phase) => {
+    const t = editTarget; if (!t || busy) return;
+    if (phase === 'start') { setActiveHandle(key); setDragDraft({kind: t.kind, id: t.obj.id, vertices: editVertices(t), invalid: null}); return; }
+    if (phase === 'cancel') { setDragDraft(null); setMessage('Arraste cancelado.'); return; }
+    const base = editVertices(t);
+    let next = null, invalid = null;
+    try { next = moveVertex(base, key, p, {closed: editClosed(t)}); } catch (e) { invalid = e.message; }
+    if (phase === 'move') { setDragDraft(d => d && (next ? {...d, vertices: next, invalid: null} : {...d, invalid})); if (invalid) setMessage(invalid); return; }
+    setDragDraft(null);
+    if (!next) { setMessage(`Arraste recusado: ${invalid} A geometria anterior foi mantida.`); return; }
+    if (Math.hypot(base[key].x - p.x, base[key].y - p.y) < 1e-9) return; // só selecionou
+    commitVertices(t, next, `${label(t)} ${key + 1} movido. Volumes recalculados (Ctrl+Z desfaz).`);
+  };
+  const onSegmentInsert = (key, p) => {
+    const t = editTarget; if (!t || busy) return;
+    try { commitVertices(t, insertVertex(editVertices(t), key, p, {closed: editClosed(t)}), `${label(t)} inserido entre ${key + 1} e ${(key + 1) % editVertices(t).length + 1}.`); setActiveHandle(key + 1); } catch (e) { setMessage(e.message); }
+  };
+  const onHandleRemove = key => {
+    const t = editTarget; if (!t || busy) return;
+    try { commitVertices(t, removeVertex(editVertices(t), key, {closed: editClosed(t)}), `${label(t)} ${key + 1} removido.`); setActiveHandle(null); } catch (e) { setMessage(e.message); }
+  };
   function updateLine(id, changes, text) {
     try {
       const next = designLines.map(l => l.id === id ? validateDesignLine({...l, ...changes}) : l);
@@ -336,6 +402,7 @@ export default function AppV4() {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (k === 'escape') { setSelected([]); setPickDraft([]); setTool('orbit'); }
       else if (k === 'enter' && ['breakline', 'boundary', 'profile', 'platform', 'line'].includes(tool)) { e.preventDefault(); finish(); }
+      else if (k === 'delete' && tool === 'orbit' && layout !== 'profile' && editTarget && activeHandle !== null && activeHandle < editVertices(editTarget).length) { e.preventDefault(); onHandleRemove(activeHandle); }
       else if (k === 'backspace' && (selected.length || pickDraft.length)) { e.preventDefault(); tool === 'boundary' ? setSelected(s => s.slice(0, -1)) : setPickDraft(s => s.slice(0, -1)); }
       else if (k === '2') setLayout('2D');
       else if (k === '3') { setLayout('3D'); setTool('orbit'); }
@@ -357,7 +424,7 @@ export default function AppV4() {
   });
   const setLabel = (k, v) => { setPreset('custom'); setStyle(s => ({...s, [k]: v})); };
   const common = {points, triangles: mesh.triangles, terrain3D, constraints: mesh.constraints, style, tool, selected, pickDraft, visibleIndices, layers, presentation, groupColors, boundary, fitKey, snap, snapModes, snapAperture, snapIndex, crosshair, zoomSensitivity,
-    onPick, onEdge, onPlanClick, onNotice: setMessage, contours, contourStyle, alignment, profileSamples: profile?.samples, referenceZ, elevationAt, designAt, designs: validDesigns, selectedPlatform, selectedLine,
+    onPick, onEdge, onPlanClick, onNotice: setMessage, contours, contourStyle, alignment, profileSamples: profile?.samples, referenceZ, elevationAt, designAt: frozenDesignAt.current, designs: meshDesigns, selectedPlatform, selectedLine, handles, segments: handleSegments, activeHandle, onHandleDrag, onSegmentInsert, onHandleRemove,
     sectionLines: layers.sections && (layout === 'sections' || profile) ? sectionLines : null, currentStation: layout === 'sections' ? currentStation : null, gradeLine3D};
   const panel = mode => <div key={mode} className={`viewport-panel ${mode === '2D' ? 'plan-panel' : 'model-panel'}`} data-testid={`panel-${mode}`}>
     <div className="panel-heading"><span>{mode === '2D' ? 'Planta' : 'Modelo 3D'}</span><small>{mode === '2D' ? (snap ? 'Atração F3 ligada' : 'Atração F3 desligada') : 'Terreno + projeto'}</small></div>
