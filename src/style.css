@@ -292,3 +292,12 @@ button.danger:hover{background:#4d2a2d}
   .tc5 .data-title span{display:none}
   .tc5 .footer-right span:not(.on){display:none}
 }
+/* rampa e bermas no cartão da plataforma */
+.tc5 .object-card details.sub{border-top:1px solid var(--line);padding-top:6px}
+.tc5 .object-card details.sub>summary{cursor:pointer;font-size:11px;font-weight:600;color:var(--text-2);padding:4px 0;list-style:none}
+.tc5 .object-card details.sub>summary::-webkit-details-marker{display:none}
+.tc5 .object-card details.sub>summary::before{content:"▸ ";color:var(--text-3)}
+.tc5 .object-card details.sub[open]>summary::before{content:"▾ "}
+.tc5 .object-card details.sub>*:not(summary){margin-top:8px}
+.tc5 .vertex-z{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px}
+.tc5 .vertex-z label{font-size:10px}

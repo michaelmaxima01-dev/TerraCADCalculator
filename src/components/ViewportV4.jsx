@@ -277,7 +277,8 @@ export default function ViewportV4(props) {
         const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
         scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({vertexColors: true, side: THREE.DoubleSide, roughness: .85, flatShading: true})));
         segments(polyline(d.mesh.daylight.map(v => world(v.x, v.y, v.z + lift)), true), '#7dffb0', 1, true);
-        segments(polyline(d.platform.polygon.map(v => world(v.x, v.y, d.platform.elevation + lift)), true), sel ? '#ffffff' : '#e7edf2', 1, true);
+        segments(polyline(d.platform.polygon.map(v => world(v.x, v.y, (Number.isFinite(v.z) ? v.z : d.platform.elevation) + lift)), true), sel ? '#ffffff' : '#e7edf2', 1, true);
+        (d.mesh.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y, v.z + lift))), '#ffd27a', .95, true));
       } else {
         const pos = new Float32Array(d.mesh.triangles.length * 9); let k = 0;
         d.mesh.triangles.forEach((t, n) => { if (d.mesh.types[n] !== 'platform') return; t.forEach(i => { const v = d.mesh.vertices[i]; world(v.x, v.y).toArray(pos, k); k += 3; }); });
@@ -287,9 +288,10 @@ export default function ViewportV4(props) {
         d.mesh.hatch.forEach(([a, b, m]) => (m === 'cut' ? cutHatch : fillHatch).push(world(a.x, a.y), world(b.x, b.y)));
         segments(cutHatch, '#ff9f6b', .8); segments(fillHatch, '#6fc3ff', .8);
         segments(polyline(d.mesh.daylight.map(v => world(v.x, v.y)), true), '#7dffb0');
+        (d.mesh.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y))), '#ffd27a', .7));
         segments(polyline(d.platform.polygon.map(v => world(v.x, v.y)), true), sel ? '#ffffff' : '#e7edf2');
         const c = d.platform.polygon.reduce((s, v) => ({x: s.x + v.x / d.platform.polygon.length, y: s.y + v.y / d.platform.polygon.length}), {x: 0, y: 0});
-        r.textLabels.push({v: world(c.x, c.y), text: `${d.platform.name} · ${d.platform.elevation.toFixed(2)}`, color: sel ? '#ffffff' : '#dfe7ee', dx: -40});
+        r.textLabels.push({v: world(c.x, c.y), text: `${d.platform.name} · ${d.platform.polygon.some(v => Number.isFinite(v.z) && Math.abs(v.z - d.platform.elevation) > 1e-9) ? 'rampa ' + Math.min(...d.platform.polygon.map(v => Number.isFinite(v.z) ? v.z : d.platform.elevation)).toFixed(2) + '–' + Math.max(...d.platform.polygon.map(v => Number.isFinite(v.z) ? v.z : d.platform.elevation)).toFixed(2) : d.platform.elevation.toFixed(2)}`, color: sel ? '#ffffff' : '#dfe7ee', dx: -40});
       }
     }
     // ---- Eixo, seções e greide ----

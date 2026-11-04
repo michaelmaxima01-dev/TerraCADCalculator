@@ -13,7 +13,7 @@ import {surfaceStats, volumeToPlane, balanceElevation} from './core/volumes';
 import {sampleProfile, profileContext} from './core/profile';
 import {gradeGeometry, gradeElevation, sampleGrade} from './core/grade';
 import {drapeBreakline} from './core/breaklines';
-import {gradePlatform, platformVolumes, designSurfaceFunction, validatePolygon, validatePlatform, meanTerrainInside, clipTerrainMesh} from './core/grading';
+import {gradePlatform, platformVolumes, designSurfaceFunction, validatePolygon, validatePlatform, meanTerrainInside, clipTerrainMesh, shiftPlatform, applyPlaneSlope, flattenPlatform, isRamp, platformVertexZ, BENCH_DEFAULT} from './core/grading';
 import {pointAtStation, sectionStations, sampleSection, averageEndArea} from './core/sections';
 import {createSnapIndex} from './core/snap';
 import {toDXF, toLandXML, toCSV} from './core/exporters';
@@ -87,7 +87,7 @@ export default function AppV4() {
   const [schema, setSchema] = useState('auto'), [mappingText, setMappingText] = useState('P,E,N,Z,D'), [edgeDraft, setEdgeDraft] = useState('0');
   const [snap, setSnap] = useState(true), [snapModes, setSnapModes] = useState({node: true, vertex: true, midpoint: true, nearest: false}), [snapAperture, setSnapAperture] = useState(18);
   const [zoomSensitivity, setZoomSensitivity] = useState(1), [crosshair, setCrosshair] = useState(true), [fitKey, setFitKey] = useState(0), [densify, setDensify] = useState(true);
-  const [showTable, setShowTable] = useState(false), [showProfileDock, setShowProfileDock] = useState(true), [help, setHelp] = useState(false), [revision, setRevision] = useState(0), [cadImport, setCadImport] = useState(null), [inspectorOpen, setInspectorOpen] = useState(() => typeof window === 'undefined' || window.innerWidth > 900);
+  const [showTable, setShowTable] = useState(false), [showProfileDock, setShowProfileDock] = useState(true), [help, setHelp] = useState(false), [revision, setRevision] = useState(0), [cadImport, setCadImport] = useState(null), [rampDraft, setRampDraft] = useState({}), [openSub, setOpenSub] = useState({}), [inspectorOpen, setInspectorOpen] = useState(() => typeof window === 'undefined' || window.innerWidth > 900);
   const [contourStyle, setContourStyle] = useState(defaultContours), [contourDraft, setContourDraft] = useState({interval: '1', majorEvery: '5'});
   const [referenceDraft, setReferenceDraft] = useState(''), [dxfOptions, setDxfOptions] = useState({tin: true, points: true, labels: true, contours: true, design: true, grade: true, sections: false});
   const [selectedPlatform, setSelectedPlatform] = useState(null), [sectionSettings, setSectionSettings] = useState({interval: 20, halfWidth: 30}), [sectionIndex, setSectionIndex] = useState(0), [equalScale, setEqualScale] = useState(false);
@@ -244,14 +244,20 @@ export default function AppV4() {
       commit({...doc, platforms: next}, text || 'Plataforma atualizada: taludes e volumes recalculados.');
     } catch (e) { setMessage(e.message); }
   }
+  /** Nova cota de referência: desloca a plataforma inteira (a rampa é preservada). */
+  function setPlatformElevation(p, z, text) { updatePlatform(p.id, shiftPlatform(p, z - p.elevation), text); }
   function balancePlatform(p) {
     if (!elevationAt) return;
     let lo = stats.minZ, hi = stats.maxZ;
-    for (let k = 0; k < 28; k++) { const mid = (lo + hi) / 2, v = platformVolumes(points, mesh.triangles, {...p, elevation: mid}, {elevationAt, maxCells: 30000}); if (v.cut > v.fill) lo = mid; else hi = mid; } // mais corte → subir a plataforma
-    updatePlatform(p.id, {elevation: Math.round((lo + hi) / 2 * 1000) / 1000}, `${p.name}: cota de equilíbrio entre corte e aterro aplicada.`);
+    for (let k = 0; k < 28; k++) { const mid = (lo + hi) / 2, v = platformVolumes(points, mesh.triangles, shiftPlatform(p, mid - p.elevation), {elevationAt, maxCells: 30000}); if (v.cut > v.fill) lo = mid; else hi = mid; } // mais corte → subir a plataforma
+    setPlatformElevation(p, Math.round((lo + hi) / 2 * 1000) / 1000, `${p.name}: cota de equilíbrio entre corte e aterro aplicada.`);
+  }
+  function applyRamp(p) {
+    const d = rampDraft[p.id] || {slope: '2', azimuth: '0'}, slope = Number(String(d.slope).replace(',', '.')), azimuth = Number(String(d.azimuth).replace(',', '.'));
+    try { updatePlatform(p.id, applyPlaneSlope(p, {slope, azimuth}), `${p.name}: rampa de ${slope}% descendo para ${azimuth}° aplicada. Ajuste cotas de vértices na tabela, se precisar.`); } catch (e) { setMessage(e.message); }
   }
   function saveProject() {
-    const data = {version: 4, points, triangles: mesh.triangles, breaklines, boundary, maxEdge, alignment, grade, platforms, labelStyle: style, groupColors, contourStyle, referenceZ: Number.isFinite(referenceZ) ? referenceZ : null, sectionSettings};
+    const data = {version: 5, points, triangles: mesh.triangles, breaklines, boundary, maxEdge, alignment, grade, platforms, labelStyle: style, groupColors, contourStyle, referenceZ: Number.isFinite(referenceZ) ? referenceZ : null, sectionSettings};
     downloadText('terra-cad-v4.json', JSON.stringify(data, null, 2), 'application/json');
     setMessage('Projeto exportado (JSON v4). Abra este arquivo para continuar em qualquer computador.');
   }
@@ -416,9 +422,24 @@ export default function AppV4() {
           {platforms.map(p => { const d = designs.find(x => x.platform.id === p.id), sel = p.id === selectedPlatform; return <div key={p.id + ':' + revision} className={`object-card ${sel ? 'selected' : ''}`} data-testid={`platform-${p.name}`} onClick={() => setSelectedPlatform(p.id)}>
             <div className="object-head"><input aria-label="Nome da plataforma" className="name" defaultValue={p.name} onBlur={e => e.target.value.trim() && e.target.value !== p.name && updatePlatform(p.id, {name: e.target.value.trim()}, 'Plataforma renomeada.')} onKeyDown={e => e.key === 'Enter' && e.target.blur()}/>
               <label className="check inline" title="Exibir e calcular"><input type="checkbox" checked={p.visible !== false} onChange={e => updatePlatform(p.id, {visible: e.target.checked}, e.target.checked ? 'Plataforma ativada.' : 'Plataforma ocultada (fora dos cálculos).')}/>ativa</label></div>
-            <NumberField label="Cota da plataforma" aria-label={`Cota da ${p.name}`} value={p.elevation} onCommit={v => updatePlatform(p.id, {elevation: v})}/>
+            <NumberField label={isRamp(p) ? 'Cota de referência (desloca a rampa)' : 'Cota da plataforma'} aria-label={`Cota da ${p.name}`} value={p.elevation} onCommit={v => setPlatformElevation(p, v)}/>
             <div className="two"><NumberField label="Corte H:V" aria-label={`Talude de corte da ${p.name}`} value={p.cutSlope} min="0.01" digits={2} onCommit={v => updatePlatform(p.id, {cutSlope: v})}/><NumberField label="Aterro H:V" aria-label={`Talude de aterro da ${p.name}`} value={p.fillSlope} min="0.01" digits={2} onCommit={v => updatePlatform(p.id, {fillSlope: v})}/></div>
-            <div className="two"><button onClick={e => { e.stopPropagation(); const m = meanTerrainInside(points, mesh.triangles, p.polygon, elevationAt); if (m !== null) updatePlatform(p.id, {elevation: Math.round(m * 1000) / 1000}, 'Cota média do terreno aplicada.'); }}>Cota média</button><button onClick={e => { e.stopPropagation(); balancePlatform(p); }} title="Corte ≈ aterro">Equilíbrio</button></div>
+            <div className="two"><button onClick={e => { e.stopPropagation(); const m = meanTerrainInside(points, mesh.triangles, p.polygon, elevationAt); if (m !== null) setPlatformElevation(p, Math.round(m * 1000) / 1000, 'Cota média do terreno aplicada.'); }}>Cota média</button><button onClick={e => { e.stopPropagation(); balancePlatform(p); }} title="Corte ≈ aterro">Equilíbrio</button></div>
+            {(() => { const bn = p.benches || BENCH_DEFAULT, rd = rampDraft[p.id] || {slope: '2', azimuth: '0'}, zs = platformVertexZ(p), setRd = (k, v) => setRampDraft(r => ({...r, [p.id]: {...rd, [k]: v}})); return <>
+              <details className="sub" open={openSub[p.id + ':ramp'] ?? isRamp(p)} onToggle={e => { const o = e.currentTarget.open; setOpenSub(x => x[p.id + ':ramp'] === o ? x : {...x, [p.id + ':ramp']: o}); }}><summary>Rampa {isRamp(p) ? `· ${fmt(Math.min(...zs))} → ${fmt(Math.max(...zs))}` : '· plana'}</summary>
+                <div className="two"><label>Caimento (%)<input type="number" step="any" aria-label={`Caimento da ${p.name}`} value={rd.slope} onChange={e => setRd('slope', e.target.value)}/></label>
+                  <label>Desce para (°)<input type="number" step="any" min="0" max="360" aria-label={`Direção da rampa da ${p.name}`} title="Azimute: 0 = norte, 90 = leste, 180 = sul, 270 = oeste" value={rd.azimuth} onChange={e => setRd('azimuth', e.target.value)}/></label></div>
+                <div className="two"><button onClick={() => applyRamp(p)}>Aplicar rampa</button><button disabled={!isRamp(p)} onClick={() => updatePlatform(p.id, flattenPlatform(p), `${p.name}: rampa removida, plataforma plana.`)}>Tornar plana</button></div>
+                <p className="hint">A cota de referência vale no centro; o caimento desce na direção do azimute. Cada vértice pode ter cota própria:</p>
+                <div className="vertex-z">{p.polygon.map((v, i) => <NumberField key={i} label={`V${i + 1}`} aria-label={`Cota do vértice ${i + 1} da ${p.name}`} value={zs[i]} onCommit={z => updatePlatform(p.id, {polygon: p.polygon.map((q, k) => k === i ? {...q, z} : q)}, `${p.name}: cota do vértice ${i + 1} alterada.`)}/>)}</div>
+              </details>
+              <details className="sub" open={openSub[p.id + ':bench'] ?? bn.enabled} onToggle={e => { const o = e.currentTarget.open; setOpenSub(x => x[p.id + ':bench'] === o ? x : {...x, [p.id + ':bench']: o}); }}><summary>Bermas / bancadas {bn.enabled ? `· ${fmt(bn.height, 1)} m / ${fmt(bn.width, 1)} m` : '· desligadas'}</summary>
+                <label className="check"><input type="checkbox" checked={bn.enabled} onChange={e => updatePlatform(p.id, {benches: {...bn, enabled: e.target.checked}}, e.target.checked ? `${p.name}: bermas ativadas a cada ${bn.height} m de altura.` : `${p.name}: bermas desativadas.`)}/>Inserir bermas no talude</label>
+                <div className="two"><NumberField label="Altura da bancada (m)" aria-label={`Altura da bancada da ${p.name}`} value={bn.height} min="0.1" digits={2} onCommit={v => updatePlatform(p.id, {benches: {...bn, height: v}})}/>
+                  <NumberField label="Largura da berma (m)" aria-label={`Largura da berma da ${p.name}`} value={bn.width} min="0" digits={2} onCommit={v => updatePlatform(p.id, {benches: {...bn, width: v}})}/></div>
+                <label>Aplicar em<select aria-label={`Bermas da ${p.name} em`} value={bn.apply} onChange={e => updatePlatform(p.id, {benches: {...bn, apply: e.target.value}})}><option value="cut">Corte</option><option value="fill">Aterro</option><option value="both">Corte e aterro</option></select></label>
+                <p className="hint">A cada altura de bancada o talude ganha uma berma horizontal antes de seguir na inclinação H:V até o terreno.</p>
+              </details></>; })()}
             {d?.error && <p className="field-error">{d.error}</p>}
             {d?.volume && <div className="volume-card compact"><div><span>Corte</span><b className="cut">{fmt(d.volume.cut, 1)} m³</b><small>h máx {fmt(d.mesh.stats.maxCut)} m</small></div><div><span>Aterro</span><b className="fill">{fmt(d.volume.fill, 1)} m³</b><small>h máx {fmt(d.mesh.stats.maxFill)} m</small></div><div className="net"><span>Saldo · área ocupada</span><b>{fmt(d.volume.net, 1)} m³ · {fmt(d.volume.footprint, 0)} m²</b></div></div>}
             {d?.mesh?.warnings.map(w => <p key={w} className="warn">⚠ {w}</p>)}
@@ -468,7 +489,7 @@ export default function AppV4() {
           <div className="two"><button onClick={() => exportFile('landxml')}>LandXML</button><button onClick={() => exportFile('csv')}>CSV pontos</button></div>
           <p className="hint">LandXML leva a superfície do terreno e, havendo plataformas, a superfície de projeto.</p>
         </Panel>
-        <Panel title="Projeto"><div className="two"><button onClick={saveProject}>Salvar JSON</button><button onClick={() => projectFile.current.click()}>Abrir JSON</button></div><p className="hint">O JSON v4 guarda terreno, edições, eixo, greide, plataformas e estilos. Abre também v1, v2 e v3.</p></Panel>
+        <Panel title="Projeto"><div className="two"><button onClick={saveProject}>Salvar JSON</button><button onClick={() => projectFile.current.click()}>Abrir JSON</button></div><p className="hint">O JSON v5 guarda terreno, edições, eixo, greide, plataformas (rampas e bermas) e estilos. Abre também v1 a v4.</p></Panel>
       </>}
     </fieldset></aside>
     <main>

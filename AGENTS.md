@@ -2,12 +2,12 @@
 
 Aplicação web local de topografia e terraplenagem: nuvem de pontos → TIN restrita (Delaunay com restrições) → planta 2D + 3D, curvas de nível, perfil com greide editável, seções transversais, plataformas com taludes, volumes e exportação DXF/LandXML/CSV. Direção do produto: equivalência funcional progressiva ao Civil 3D, com mais automação. Interface e mensagens em **português do Brasil**.
 
-Versão atual: **4.0** (`package.json` 0.4.0). Guias do usuário: `LEIA-ME-V4.md` (novidades), `LEIA-ME-V3.md`, `LEIA-ME-V2.md`.
+Versão atual: **4.0** (com rampas, bermas, DWG/DXF e nova interface; projeto JSON v5) (`package.json` 0.4.0). Guias do usuário: `LEIA-ME-V4.md` (novidades), `LEIA-ME-V3.md`, `LEIA-ME-V2.md`.
 
 ## Comandos
 - `npm ci` — instalar (Node.js 22.12+)
 - `npm run dev` — Vite em 127.0.0.1
-- `npm test` — `node --test` (56 testes do núcleo; devem continuar passando)
+- `npm test` — `node --test` (65 testes do núcleo; devem continuar passando)
 - `npm run build` — gera `dist/`
 - `node serve.mjs` — servidor de uso (somente módulos nativos), serve `dist/` em http://127.0.0.1:4173
 
@@ -37,23 +37,23 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 | `src/core/profile.js` | `sampleProfile`, `profileContext` (reutilizável), `triangleLocator` |
 | `src/core/grade.js` | Greide: PVIs, curvas verticais parabólicas, inserir/mover |
 | `src/core/breaklines.js` | `drapeBreakline`: linha obrigatória livre assentada na TIN (pontos `RL###`) |
-| `src/core/grading.js` | Plataformas: modelo de distância `z = Zp ± d/(H:V)`, malha de taludes, volumes em grade, `clipTerrainMesh` |
+| `src/core/grading.js` | Plataformas: modelo de distância `z = Zb ± subida(d)` (Zb = cota da borda mais próxima; rampa = TIN dos vértices com cota), bermas (`slopeRise`, `slopeBreaks`, `benchLines`), malha de taludes com costura entre raios, volumes em grade, `shiftPlatform`/`applyPlaneSlope`/`flattenPlatform`, `clipTerrainMesh` |
 | `src/core/sections.js` | Estacas, seções, média das áreas extremas |
 | `src/core/snap.js` | Índice de atração: nó/vértice > ponto médio > mais próximo |
 | `src/core/exporters.js` | DXF R12 (camadas `TC_*`), LandXML 1.2 (multi-superfície), CSV |
 | `src/core/geometry.worker.js` | Worker: import, superfície, validação de projeto, leitura CAD (`cad`) |
-| `tests/*.test.js` | `core`, `surface`, `v3`, `v4`, `cad` (fixture `tests/fixtures/blocos.dxf`) |
+| `tests/*.test.js` | `core`, `surface`, `v3`, `v4`, `cad` (fixture `tests/fixtures/blocos.dxf`), `v5` (bermas por Pappus, rampas) |
 | `AppV2/V3`, `ViewportV2/V3`, `ProfileChart`, `main.jsx`, `Viewport.jsx` | Versões anteriores preservadas como referência, **fora da entrada** — não editar sem pedido |
 
-## Modelo de dados (projeto JSON v4)
-`{version:4, points:[{id,x,y,z,description}], triangles:[[i,j,k]], breaklines:[[idx...]], boundary:[idx...], maxEdge, alignment:[{x,y}], grade:[{station,z,curve}], platforms:[{id,name,polygon:[{x,y}],elevation,cutSlope,fillSlope,visible}], labelStyle, groupColors, contourStyle, referenceZ, sectionSettings:{interval,halfWidth}}`. Índices referem-se ao array `points`. Novas versões devem continuar abrindo v1–v4.
+## Modelo de dados (projeto JSON v5)
+`{version:5, points:[{id,x,y,z,description}], triangles:[[i,j,k]], breaklines:[[idx...]], boundary:[idx...], maxEdge, alignment:[{x,y}], grade:[{station,z,curve}], platforms:[{id,name,polygon:[{x,y,z?}],elevation,cutSlope,fillSlope,benches:{enabled,height,width,apply:'cut'|'fill'|'both'},visible}], labelStyle, groupColors, contourStyle, referenceZ, sectionSettings:{interval,halfWidth}}`. Índices referem-se ao array `points`. Vértice sem `z` usa `elevation`. Novas versões devem continuar abrindo v1–v5.
 
 ## Regras do domínio
 - Recalcular a TIN descarta inversões/cortes manuais; contorno, linhas obrigatórias, eixo, greide e plataformas persistem.
 - Contorno: polígono simples, sem ilhas. Restrições não podem cruzar sem vértice comum.
 - Coordenadas UTM grandes: centralizar antes de triangular/renderizar (já feito em `tin.js` e nos viewports).
 - Curvas: convenção `z >= nível` (a cota mínima exata não gera linha).
-- Plataforma é plana; taludes pelo modelo de distância; plataformas sobrepostas não são combinadas.
+- Plataforma plana ou em rampa (cota por vértice; interior = TIN dos vértices). Mudar a cota de referência desloca a rampa inteira. Taludes pelo modelo de distância, com bermas opcionais (altura da bancada, largura da berma; corte, aterro ou ambos). Plataformas sobrepostas não são combinadas.
 - Volumes são geométricos (sem empolamento/contração).
 
 ## Convenções
@@ -71,7 +71,7 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 4. Não versionar desenhos de clientes (DWG/DXF reais); usar fixtures sintéticas.
 
 ## Backlog sugerido
-Plataformas com rampa e bermas · corredor (seção-tipo ao longo do eixo) · curvas horizontais no eixo · volume superfície × superfície (ex.: levantamentos jan × mar/2022 da Mina Cutia) · arrastar vértices de plataforma · curvas importadas como linhas obrigatórias · planimetria do DWG como fundo · textos de cota (TEXT) como pontos · triangulação mais rápida (≈3 s para 10 mil pontos) · reduzir estado do `AppV4` (reducer/store) · `constraintsFor` O(n²).
+Corredor (seção-tipo ao longo do eixo) · curvas horizontais no eixo · volume superfície × superfície (ex.: levantamentos jan × mar/2022 da Mina Cutia) · arrastar vértices de plataforma · curvas importadas como linhas obrigatórias · planimetria do DWG como fundo · textos de cota (TEXT) como pontos · triangulação mais rápida (≈3 s para 10 mil pontos) · reduzir estado do `AppV4` (reducer/store) · `constraintsFor` O(n²).
 
 ## Pendências com o usuário
 Confirmar o significado de "modelo aranha" e de "curso que mostre as milhas" (provavelmente cursor em mira).

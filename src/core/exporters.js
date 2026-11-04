@@ -12,7 +12,7 @@ export const DXF_LAYERS = {
   CONTORNO: {name: 'TC_CONTORNO', color: 5}, CN_MESTRA: {name: 'TC_CN_MESTRA', color: 1}, CN_INTERMEDIARIA: {name: 'TC_CN_INTERMEDIARIA', color: 9},
   PERFIL: {name: 'TC_PERFIL', color: 6}, PONTOS: {name: 'TC_PONTOS', color: 7}, ROTULOS: {name: 'TC_ROTULOS', color: 2},
   PLATAFORMA: {name: 'TC_PLATAFORMA', color: 253}, TALUDE_CORTE: {name: 'TC_TALUDE_CORTE', color: 30}, TALUDE_ATERRO: {name: 'TC_TALUDE_ATERRO', color: 140},
-  PLAT_BORDA: {name: 'TC_PLAT_BORDA', color: 7}, OFFSET: {name: 'TC_OFFSET', color: 3}, GREIDE: {name: 'TC_GREIDE', color: 1}, SECOES: {name: 'TC_SECOES', color: 4}
+  PLAT_BORDA: {name: 'TC_PLAT_BORDA', color: 7}, BERMA: {name: 'TC_BERMA', color: 2}, OFFSET: {name: 'TC_OFFSET', color: 3}, GREIDE: {name: 'TC_GREIDE', color: 1}, SECOES: {name: 'TC_SECOES', color: 4}
 };
 
 function polyline3D(layer, coords, closed) {
@@ -60,7 +60,8 @@ export function toDXF(model, options = {}) {
   const face = (layer, [a, b, c]) => { let f = pair(0, '3DFACE') + pair(8, layer); [a, b, c, c].forEach((p, k) => { f += pair(10 + k, n(p.x)) + pair(20 + k, n(p.y)) + pair(30 + k, n(p.z)); }); return f; };
   for (const d of designs) {
     d.mesh.triangles.forEach((t, k) => { const type = d.mesh.types[k]; out += face(type === 'platform' ? DXF_LAYERS.PLATAFORMA.name : type === 'fill' ? DXF_LAYERS.TALUDE_ATERRO.name : DXF_LAYERS.TALUDE_CORTE.name, t.map(i => d.mesh.vertices[i])); });
-    out += polyline3D(DXF_LAYERS.PLAT_BORDA.name, d.platform.polygon.map(p => [p.x, p.y, d.platform.elevation]), true);
+    out += polyline3D(DXF_LAYERS.PLAT_BORDA.name, d.platform.polygon.map(p => [p.x, p.y, Number.isFinite(p.z) ? p.z : d.platform.elevation]), true);
+    for (const line of d.mesh.benchLines || []) out += polyline3D(DXF_LAYERS.BERMA.name, line.map(p => [p.x, p.y, p.z]), false);
     out += polyline3D(DXF_LAYERS.OFFSET.name, d.mesh.daylight.map(p => [p.x, p.y, p.z]), true);
   }
   if (gradeLine && gradeLine.length > 1) out += polyline3D(DXF_LAYERS.GREIDE.name, gradeLine.map(p => [p.x, p.y, p.z]), false);
