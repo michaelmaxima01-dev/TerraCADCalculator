@@ -328,3 +328,38 @@ test('revisão 4: DXF da linha "dois lados" exporta um offset por lado', () => {
   const dxf = toDXF({points, triangles, designs: [{kind: 'line', line: l, mesh}]});
   assert.equal((dxf.match(/POLYLINE\r?\n\s*8\r?\nTC_LP_OFFSET\r?\n/g) || []).length, 2);
 });
+
+// ---------- V5 etapa 1: modo de cota "seguir o greide" e cubagem ----------
+import {stationAt, cubageTable} from '../src/core/sections.js';
+const eixo = [{x: 0, y: 0}, {x: 100, y: 0}], greide = s => 100 + s / 10;
+
+test('stationAt projeta no eixo e limita às pontas', () => {
+  close(stationAt(eixo, 50, 5).s, 50, 1e-9); close(stationAt(eixo, 50, 5).d, 5, 1e-9);
+  assert.equal(stationAt(eixo, 130, 0).s, 100); assert.equal(stationAt(eixo, -9, 0).s, 0);
+});
+
+test('linha em modo greide: cota vem do greide pela estaca, com desnível e sem extrapolar', () => {
+  const sobre = buildLineBase(validateDesignLine({pis: [{x: 0, y: 0}, {x: 100, y: 0}], elevation: {mode: 'grade', drop: 0}}), null, {path: eixo, gradeAt: greide});
+  close(lineNearest(sobre, 50, 0).z, 105, 1e-9);
+  const paralela = buildLineBase(validateDesignLine({pis: [{x: 0, y: 5}, {x: 120, y: 5}], elevation: {mode: 'grade', drop: 2}}), null, {path: eixo, gradeAt: greide});
+  close(lineNearest(paralela, 50, 5).z, 103, 1e-9); close(paralela.base.at(-1).z, 108, 1e-9, 'além do fim usa a ponta');
+  const sem = buildLineBase(validateDesignLine({pis: [{x: 0, y: 0}, {x: 10, y: 0}], elevation: {mode: 'grade'}}));
+  assert.deepEqual(sem.base, []); assert.ok(sem.warnings.some(w => /Trace o eixo e crie o greide/.test(w)));
+});
+
+test('volumes da linha em modo greide acompanham o greide', () => {
+  const {points, triangles} = planeTerrain(() => 105);
+  const l = validateDesignLine({pis: [{x: 0, y: 0}, {x: 100, y: 0}], side: 'right', cutSlope: 1, elevation: {mode: 'grade', drop: 0}});
+  const v = lineVolumes(points, triangles, l, {maxCells: 400000, gradeCtx: {path: eixo, gradeAt: () => 100}});
+  close(v.cut, 1250, 1250 * 0.007, 'greide plano a 100 = reta de antes');
+  const v2 = lineVolumes(points, triangles, l, {maxCells: 400000, gradeCtx: {path: eixo, gradeAt: () => 103}});
+  close(v2.cut, 100 * 2 * 2 / 2, 200 * 0.01, 'greide a 103: corte de 2 m');
+});
+
+test('cubageTable: parciais pela média das áreas e saldo acumulado', () => {
+  const secs = [0, 20, 40, 60, 80].map(station => ({station, cutArea: 10, fillArea: 4}));
+  const t = cubageTable(secs);
+  assert.equal(t.length, 5); assert.deepEqual([t[0].cutVol, t[0].fillVol, t[0].balance], [0, 0, 0]);
+  close(t[1].cutVol, 200, 1e-9); close(t[1].fillVol, 80, 1e-9); close(t.at(-1).accCut, 800, 1e-9); close(t.at(-1).balance, 480, 1e-9);
+  assert.equal(cubageTable([{station: 0, cutArea: 3, fillArea: 1}])[0].balance, 0);
+});

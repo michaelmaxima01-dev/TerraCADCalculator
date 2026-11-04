@@ -70,6 +70,33 @@ function interpolate(series, o) {
   return null;
 }
 
+/** Estaca do ponto (x,y) projetado no eixo (limitada a [0, comprimento]) e distância ao eixo. */
+export function stationAt(path, x, y) {
+  let best = {s: 0, d: Infinity}, acc = 0;
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1], b = path[i], dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy);
+    if (L < 1e-12) continue;
+    const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / (L * L))), d = Math.hypot(x - a.x - t * dx, y - a.y - t * dy);
+    if (d < best.d - 1e-12) best = {s: acc + t * L, d};
+    acc += L;
+  }
+  return best;
+}
+
+/**
+ * Cubagem por estaca (média das áreas extremas): volumes parciais entre a seção anterior e esta, acumulados e saldo
+ * acumulado (corte − aterro), base do diagrama de massas.
+ */
+export function cubageTable(sections) {
+  let accCut = 0, accFill = 0;
+  return sections.map((b, i) => {
+    let cutVol = 0, fillVol = 0;
+    if (i > 0) { const a = sections[i - 1], L = b.station - a.station; cutVol = (a.cutArea + b.cutArea) / 2 * L; fillVol = (a.fillArea + b.fillArea) / 2 * L; }
+    accCut += cutVol; accFill += fillVol;
+    return {station: b.station, cutArea: b.cutArea, fillArea: b.fillArea, cutVol, fillVol, accCut, accFill, balance: accCut - accFill};
+  });
+}
+
 /** Volume por média das áreas extremas entre seções consecutivas. */
 export function averageEndArea(sections) {
   let cut = 0, fill = 0;

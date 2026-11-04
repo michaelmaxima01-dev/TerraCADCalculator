@@ -10,15 +10,15 @@ const cache = new WeakMap();
 const benchFor = (l, mode) => l.benches?.enabled && (l.benches.apply === 'both' || l.benches.apply === mode) ? l.benches : null;
 
 /** Geometria pronta da linha (base, estacas, curvas), com cache por linha e função de terreno. */
-export function compileLine(line, terrainAt) {
+export function compileLine(line, terrainAt, gradeCtx = null) {
   const hit = cache.get(line);
-  if (hit && hit.terrainAt === terrainAt) return hit.info;
-  const info = buildLineBase(line, terrainAt);
+  if (hit && hit.terrainAt === terrainAt && hit.gradeCtx === gradeCtx) return hit.info;
+  const info = buildLineBase(line, terrainAt, gradeCtx || {});
   if (line.closed && info.base.length > 2 && signedArea(info.base) < 0) info.ccw = info.base.slice().reverse(); else info.ccw = info.base;
   if (line.closed && line.side === 'outside' && info.base.length > 2) {
     info.platform = {id: line.id, name: line.name, polygon: info.ccw.map(v => ({x: v.x, y: v.y, z: v.z})), elevation: info.ccw[0].z, cutSlope: line.cutSlope, fillSlope: line.fillSlope, benches: line.benches, end: line.end, visible: true};
   }
-  cache.set(line, {terrainAt, info});
+  cache.set(line, {terrainAt, gradeCtx, info});
   return info;
 }
 
@@ -40,8 +40,8 @@ export function lineElevationAt(line, info, x, y, T) {
 const emptyMesh = warnings => ({vertices: [], triangles: [], types: [], daylight: [], hatch: [], benchLines: [], warnings, stats: {maxCut: 0, maxFill: 0, rays: 0}});
 
 /** Malha de projeto da linha (mesmo formato de castSlopes, com base e curvas). */
-export function gradeLine(points, triangles, line, {elevationAt, spacing, maxDistance} = {}) {
-  const terrainAt = elevationAt || triangleLocator(points, triangles), info = compileLine(line, terrainAt);
+export function gradeLine(points, triangles, line, {elevationAt, spacing, maxDistance, gradeCtx = null} = {}) {
+  const terrainAt = elevationAt || triangleLocator(points, triangles), info = compileLine(line, terrainAt, gradeCtx);
   if (info.base.length < 2) return {...emptyMesh(info.warnings), base: [], curves: info.curves, piStations: info.piStations, piZ: info.piZ, length: 0, daylightRuns: []};
   let mesh;
   if (info.platform) mesh = gradePlatform(points, triangles, info.platform, {spacing, maxDistance, elevationAt: terrainAt});
@@ -73,8 +73,8 @@ export function gradeLine(points, triangles, line, {elevationAt, spacing, maxDis
 }
 
 /** Volumes de corte e aterro da linha, integrados em grade. */
-export function lineVolumes(points, triangles, line, {cell, maxCells = 250000, elevationAt} = {}) {
-  const terrainAt = elevationAt || triangleLocator(points, triangles), info = compileLine(line, terrainAt);
+export function lineVolumes(points, triangles, line, {cell, maxCells = 250000, elevationAt, gradeCtx = null} = {}) {
+  const terrainAt = elevationAt || triangleLocator(points, triangles), info = compileLine(line, terrainAt, gradeCtx);
   if (info.platform) return platformVolumes(points, triangles, info.platform, {cell, maxCells, elevationAt: terrainAt});
   if (info.base.length < 2) return gridVolumes(() => null, terrainAt, {minX: 0, minY: 0, maxX: 0, maxY: 0});
   let tminX = Infinity, tminY = Infinity, tmaxX = -Infinity, tmaxY = -Infinity, tminZ = Infinity, tmaxZ = -Infinity;

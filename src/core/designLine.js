@@ -2,8 +2,9 @@
 // A geometria daqui alimenta os taludes (lineGrading.js): a "base" é a polilinha 3D já com os arcos
 // discretizados e a estaca s (comprimento 2D acumulado) em cada vértice.
 import {validateBenches, validateEnd, checkBenchEnd} from './slopes.js';
+import {stationAt} from './sections.js';
 
-const ELEV_MODES = ['ramp', 'pis', 'terrain'], OPEN_SIDES = ['left', 'right', 'both'], CLOSED_SIDES = ['outside', 'inside'];
+const ELEV_MODES = ['ramp', 'pis', 'terrain', 'grade'], OPEN_SIDES = ['left', 'right', 'both'], CLOSED_SIDES = ['outside', 'inside'];
 const MAX_SAGITTA = 0.02, MAX_STEP = 3 * Math.PI / 180;
 const num = (v, d) => v === undefined || v === null || v === '' ? d : Number(v);
 const fmt = v => Number(v).toLocaleString('pt-BR', {maximumFractionDigits: 2});
@@ -75,8 +76,10 @@ export function validateDesignLine(l) {
  * @param {(x,y)=>number|null} [terrainAt] necessário no modo de cota 'terrain'
  * @returns {{base:Array<{x,y,z,s}>, length:number, closed:boolean, curves:Array<{pi,radius,clamped,T,arcLength}>, warnings:string[], piStations:number[], piZ:number[]}}
  */
-export function buildLineBase(line, terrainAt = null) {
+export function buildLineBase(line, terrainAt = null, gradeCtx = {}) {
   const {pis, closed, elevation} = line, n = pis.length, warnings = [], curves = [];
+  const gradeZ = elevation.mode === 'grade' && gradeCtx?.path?.length > 1 && gradeCtx.gradeAt ? (x, y) => { const z = gradeCtx.gradeAt(stationAt(gradeCtx.path, x, y).s); return Number.isFinite(z) ? z - elevation.drop : null; } : null;
+  if (elevation.mode === 'grade' && !gradeZ) return {base: [], length: 0, closed, curves, warnings: ['Trace o eixo e crie o greide no perfil para a linha seguir o greide.'], piStations: pis.map(() => 0), piZ: pis.map(() => NaN)};
   // cota em cada PI
   let piZ = null;
   if (elevation.mode === 'pis') piZ = pis.map((p, i) => { if (Number.isFinite(p.z)) return p.z; warnings.push(`PI ${i + 1} sem cota: usada a cota inicial.`); return elevation.start; });
@@ -133,6 +136,19 @@ export function buildLineBase(line, terrainAt = null) {
     for (let k = 1; k < list.length; k++) if (st <= list[k].s) { const a = list[k - 1], b = list[k], t = b.s > a.s ? (st - a.s) / (b.s - a.s) : 0; return piZ[a.i] + t * (piZ[b.i] - piZ[a.i]); }
     return piZ[list.at(-1).i];
   };
+  if (gradeZ) { // segue o greide: densifica para acompanhar curvas verticais e tira a cota de cada ponto pela estaca no eixo
+    const dense = [], step = Math.max(1, length / 300);
+    for (let k = 0; k < base.length; k++) {
+      const a = base[k], b = base[k + 1] ?? (closed ? {...base[0], s: length} : null); dense.push(a);
+      if (!b) continue; const L = b.s - a.s, m = Math.floor(L / step);
+      for (let j = 1; j < m; j++) { const t = j / m; dense.push({x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y), z: 0, s: a.s + t * L}); }
+    }
+    base.splice(0, base.length, ...dense);
+    let bad = false; base.forEach(v => { const z = gradeZ(v.x, v.y); if (z === null) bad = true; v.z = z ?? 0; });
+    if (bad) return {base: [], length: 0, closed, curves, warnings: ['O greide não cobre toda a linha: estenda o greide no perfil.'], piStations: pis.map(() => 0), piZ: pis.map(() => NaN)};
+    const piStations = pis.map((_, i) => { const a = anchors.find(q => q.i === i); return a ? a.s : 0; });
+    return {base, length, closed, curves, warnings, piStations, piZ: pis.map(p => gradeZ(p.x, p.y))};
+  }
   base.forEach(v => { v.z = zAt(v.s); });
   const piStations = pis.map((_, i) => { const a = anchors.find(q => q.i === i); return a ? a.s : 0; });
   return {base, length, closed, curves, warnings, piStations, piZ: piStations.map(zAt)};

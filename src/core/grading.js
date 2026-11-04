@@ -116,8 +116,8 @@ export function designElevationAt(platform, x, y, terrainZ) {
 }
 
 /** Função de cota de projeto: plataformas e depois linhas de projeto (vale a primeira que cobre o ponto). */
-export function designSurfaceFunction(platforms, terrainAt, lines = []) {
-  const list = platforms.filter(p => p.visible !== false), ls = lines.filter(l => l.visible !== false).map(l => ({l, info: compileLine(l, terrainAt)}));
+export function designSurfaceFunction(platforms, terrainAt, lines = [], gradeCtx = null) {
+  const list = platforms.filter(p => p.visible !== false), ls = lines.filter(l => l.visible !== false).map(l => ({l, info: compileLine(l, terrainAt, gradeCtx)}));
   return (x, y) => {
     let t;
     for (const p of list) {
