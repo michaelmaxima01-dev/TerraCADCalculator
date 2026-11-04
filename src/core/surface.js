@@ -2,6 +2,7 @@ import {triangulate,edgesOf} from './tin.js';
 import {validateAlignment} from './profile.js';
 import {validateGrade} from './grade.js';
 import {validatePlatform} from './grading.js';
+import {validateDesignLine} from './designLine.js';
 export function validatePoints(points){
  if(!Array.isArray(points)||points.length<3)throw Error('São necessários pelo menos três pontos.');
  const ids=new Set(),xy=new Set();
@@ -38,7 +39,7 @@ export function buildSurface(points,breaklines=[],boundary=[],maxEdge=0){
  return {...mesh,removed:originalCount-mesh.triangles.length};
 }
 export function validateProject(data){
- if(!data||![1,2,3,4,5].includes(data.version))throw Error('Versão de projeto não suportada.');
+ if(!data||![1,2,3,4,5,6].includes(data.version))throw Error('Versão de projeto não suportada.');
  const points=data.points;validatePoints(points);
  const breaklines=data.breaklines??[],boundary=data.boundary??[],maxEdge=data.maxEdge??0;
  const base=buildSurface(points,breaklines,boundary,maxEdge);
@@ -50,5 +51,7 @@ export function validateProject(data){
  const grade=validateGrade(data.grade??[]);
  if(!Array.isArray(data.platforms??[]))throw Error('Plataformas inválidas.');
  const platforms=(data.platforms??[]).map(validatePlatform);
- return {points,breaklines,boundary,maxEdge,alignment,grade,platforms,mesh:{...base,triangles:data.triangles}};
+ if(!Array.isArray(data.designLines??[]))throw Error('Linhas de projeto inválidas.');
+ const designLines=(data.designLines??[]).map(validateDesignLine);
+ return {points,breaklines,boundary,maxEdge,alignment,grade,platforms,designLines,mesh:{...base,triangles:data.triangles}};
 }

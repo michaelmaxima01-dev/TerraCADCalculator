@@ -12,6 +12,7 @@ import cdt2d from 'cdt2d';
 import {triangleLocator} from './profile.js';
 import {BENCH_DEFAULT, validateBenches, slopeRise, slopeReach, slopeBreaks, castSlopes, gridVolumes, meshDefaults} from './slopes.js';
 export {BENCH_DEFAULT, validateBenches, slopeRise, slopeReach, slopeBreaks};
+import {compileLine, lineElevationAt} from './lineGrading.js';
 
 const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 export function signedArea(poly) { let s = 0; for (let i = 0; i < poly.length; i++) { const a = poly[i], b = poly[(i + 1) % poly.length]; s += a.x * b.y - b.x * a.y; } return s / 2; }
@@ -111,14 +112,18 @@ export function designElevationAt(platform, x, y, terrainZ) {
   return null;
 }
 
-/** Função de cota de projeto combinando várias plataformas (primeira que cobre o ponto). */
-export function designSurfaceFunction(platforms, terrainAt) {
-  const list = platforms.filter(p => p.visible !== false);
+/** Função de cota de projeto: plataformas e depois linhas de projeto (vale a primeira que cobre o ponto). */
+export function designSurfaceFunction(platforms, terrainAt, lines = []) {
+  const list = platforms.filter(p => p.visible !== false), ls = lines.filter(l => l.visible !== false).map(l => ({l, info: compileLine(l, terrainAt)}));
   return (x, y) => {
     let t;
     for (const p of list) {
       if (t === undefined) t = terrainAt(x, y);
       const z = designElevationAt(p, x, y, t); if (z !== null) return z;
+    }
+    for (const {l, info} of ls) {
+      if (t === undefined) t = terrainAt(x, y);
+      const z = lineElevationAt(l, info, x, y, t); if (z !== null) return z;
     }
     return null;
   };

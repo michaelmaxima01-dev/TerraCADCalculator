@@ -111,5 +111,5 @@ test('validateProject abre v5 com rampa e bermas e continua abrindo v4', () => {
   assert.equal(r.platforms[0].benches.apply, 'both');
   const r4 = validateProject({version: 4, points: pts, triangles: tri, platforms: [{...platform, polygon: platform.polygon.map(({x, y}) => ({x, y})), benches: undefined}]});
   assert.equal(r4.platforms[0].benches.enabled, false);
-  assert.throws(() => validateProject({version: 6, points: pts, triangles: tri}), /Versão/);
+  assert.throws(() => validateProject({version: 7, points: pts, triangles: tri}), /Versão/);
 });

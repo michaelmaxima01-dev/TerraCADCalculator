@@ -142,3 +142,34 @@ test('volume da linha aberta não depende do alinhamento da grade', () => {
   const {points, triangles} = planeTerrain(() => 105);
   for (const maxCells of [30000, 100000, 250000]) close(lineVolumes(points, triangles, reta(), {maxCells}).cut, 1250, 1250 * 0.007, `maxCells ${maxCells}`);
 });
+
+// ---------- Task 4: projeto v6, superfície combinada e exportação ----------
+import {validateProject} from '../src/core/surface.js';
+import {designSurfaceFunction} from '../src/core/grading.js';
+import {toDXF, toLandXML} from '../src/core/exporters.js';
+import {triangleLocator} from '../src/core/profile.js';
+
+const projBase = () => { const pts = [[0, 0], [100, 0], [100, 100], [0, 100], [50, 50]].map(([x, y], i) => ({id: 'P' + i, x, y, z: 10 + i, description: ''})); return {pts, tri: buildSurface(pts).triangles}; };
+
+test('validateProject: v6 com linha de projeto; v5 sem linhas; v7 recusado', () => {
+  const {pts, tri} = projBase();
+  const r = validateProject({version: 6, points: pts, triangles: tri, designLines: [{id: 'l1', name: 'Acesso', pis: [{x: 10, y: 10}, {x: 50, y: 20, radius: 8}, {x: 90, y: 10}]}]});
+  assert.equal(r.designLines.length, 1); assert.equal(r.designLines[0].pis[1].radius, 8); assert.equal(r.designLines[0].name, 'Acesso');
+  assert.deepEqual(validateProject({version: 5, points: pts, triangles: tri}).designLines, []);
+  assert.throws(() => validateProject({version: 7, points: pts, triangles: tri}), /Versão/);
+});
+
+test('designSurfaceFunction considera as linhas depois das plataformas', () => {
+  const {points, triangles} = planeTerrain(() => 105);
+  const at = triangleLocator(points, triangles), f = designSurfaceFunction([], at, [reta()]);
+  close(f(50, -2), 102, 1e-9); assert.equal(f(50, 2), null);
+});
+
+test('exportação: DXF com eixo e offset da linha; LandXML com a superfície de projeto', () => {
+  const {points, triangles} = planeTerrain(() => 105);
+  const l = reta(), mesh = gradeLine(points, triangles, l);
+  const dxf = toDXF({points, triangles, designs: [{kind: 'line', line: l, mesh}]});
+  assert.match(dxf, /\nTC_LP_EIXO\r?\n/); assert.match(dxf, /\nTC_LP_OFFSET\r?\n/);
+  const xml = toLandXML({points, triangles}, {name: 'Terreno', extra: [{name: 'Projeto', vertices: mesh.vertices, triangles: mesh.triangles}]});
+  assert.equal((xml.match(/<Surface /g) || []).length, 2);
+});
