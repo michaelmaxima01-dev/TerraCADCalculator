@@ -452,7 +452,7 @@ export default function AppV4() {
     <Viewport {...common} mode={mode}/>{mode === '2D' && <Compass/>}
   </div>;
   const picking = ['boundary', 'breakline', 'profile', 'platform', 'line'].includes(tool), pickCount = tool === 'boundary' ? selected.length : pickDraft.length, minPick = ['boundary', 'platform'].includes(tool) ? 3 : 2;
-  const editor = profile && <ProfileEditor profile={profile} grade={grade} onGradeDraft={setGradeDraft} onGradeChange={(g, text) => commit({...doc, grade: g}, text)} designProfile={designProfile} referenceZ={referenceZ} precision={style.precision}
+  const editor = profile && <ProfileEditor profile={profile} grade={grade} onGradeDraft={setGradeDraft} onGradeChange={(g, text) => commit({...doc, grade: g}, designLines.some(l => l.elevation.mode === 'grade') ? text : 'Greide alterado. Nenhuma linha segue o greide: na linha de projeto, escolha a cota “Seguir o greide do eixo” para o corte acompanhar o perfil no 3D.')} designProfile={designProfile} referenceZ={referenceZ} precision={style.precision}
     sectionStations={stationList} currentStation={currentStation} onStation={s => { const i = stationList.reduce((b, v, k) => Math.abs(v - s) < Math.abs(stationList[b] - s) ? k : b, 0); setSectionIndex(i); }}
     onRemove={() => commit({...doc, alignment: [], grade: []}, 'Eixo e greide removidos.')} onNotice={setMessage} zoomSensitivity={zoomSensitivity}
     height={layout === 'profile' ? Math.max(360, viewportH - (grade.length ? 360 : 190)) : 210} showTable={layout === 'profile'}/>;
