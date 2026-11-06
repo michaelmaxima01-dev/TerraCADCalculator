@@ -123,24 +123,38 @@ export function designElevationAt(platform, x, y, terrainZ) {
   return null;
 }
 
-/** Função de cota de projeto: plataformas e depois linhas de projeto (vale a primeira que cobre o ponto). */
+/**
+ * Superfície de projeto combinada de todos os objetos (plataformas, linhas e extras como o acesso).
+ * Regras, iguais às de uma obra real:
+ *  1. A base de um objeto (piso da plataforma, pista do acesso, interior da linha fechada para fora) vale sobre os
+ *     taludes dos outros: um talude não invade o piso de outra plataforma.
+ *  2. Fora das bases, onde vários taludes se sobrepõem: se algum escava (cota abaixo do terreno), vale a cota mais
+ *     baixa (a escavação remove tudo acima); senão vale a mais alta (os aterros se somam no envelope).
+ * @param {Array} extras funções (x,y,T)=>z|null ou {at:(x,y,T)=>z|null, base:(x,y)=>boolean}
+ * @returns {(x:number, y:number, T?:number|null)=>number|null}
+ */
 export function designSurfaceFunction(platforms, terrainAt, lines = [], gradeCtx = null, extras = []) {
-  const list = platforms.filter(p => p.visible !== false), ls = lines.filter(l => l.visible !== false).map(l => ({l, info: compileLine(l, terrainAt, gradeCtx)}));
-  return (x, y) => {
-    let t;
-    for (const p of list) {
-      if (t === undefined) t = terrainAt(x, y);
-      const z = designElevationAt(p, x, y, t); if (z !== null) return z;
-    }
-    for (const {l, info} of ls) {
-      if (t === undefined) t = terrainAt(x, y);
-      const z = lineElevationAt(l, info, x, y, t); if (z !== null) return z;
-    }
-    for (const f of extras) { // outros projetos (ex.: acesso pelo gabarito no eixo)
-      if (t === undefined) t = terrainAt(x, y);
-      const z = f(x, y, t); if (z !== null) return z;
-    }
-    return null;
+  const items = [];
+  for (const p of platforms.filter(p => p.visible !== false)) { const c = compile(p); items.push({at: (x, y, T) => designElevationAt(p, x, y, T), base: (x, y) => insidePolygonXY(x, y, c.poly)}); }
+  for (const l of lines.filter(l => l.visible !== false)) {
+    const info = compileLine(l, terrainAt, gradeCtx), poly = info.platform?.polygon;
+    items.push({at: (x, y, T) => lineElevationAt(l, info, x, y, T), base: poly ? (x, y) => insidePolygonXY(x, y, poly) : () => false});
+  }
+  for (const e of extras) items.push(typeof e === 'function' ? {at: e, base: () => false} : e);
+  return combineAt(items, terrainAt);
+}
+
+/** Combina objetos {at, base} pelas regras de designSurfaceFunction (exportada para testes e volumes). */
+export function combineAt(items, terrainAt) {
+  if (items.length === 1) { const [o] = items; return (x, y, T) => o.at(x, y, T === undefined ? terrainAt(x, y) : T); }
+  return (x, y, T) => {
+    if (T === undefined) T = terrainAt(x, y);
+    for (const o of items) if (o.base(x, y)) { const z = o.at(x, y, T); if (z !== null) return z; }
+    let lo = Infinity, hi = -Infinity, any = false;
+    for (const o of items) { const z = o.at(x, y, T); if (z === null) continue; any = true; if (z < lo) lo = z; if (z > hi) hi = z; }
+    if (!any) return null;
+    if (T === null || T === undefined) return lo;
+    return lo < T ? lo : hi;
   };
 }
 

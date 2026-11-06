@@ -22,7 +22,8 @@ import {pointAtStation, sectionStations, sampleSection, averageEndArea, cubageTa
 import CubageTable from './components/CubageTable';
 import CorridorCard from './components/CorridorCard';
 import ServiceNotes from './components/ServiceNotes';
-import {validateCorridor, compileCorridor, gradeCorridor, corridorVolumes, corridorElevationAt, serviceNotes, serviceNotesCSV} from './core/corridor';
+import {validateCorridor, compileCorridor, gradeCorridor, corridorVolumes, corridorElevationAt, corridorBase, serviceNotes, serviceNotesCSV} from './core/corridor';
+import {projectEarthworks} from './core/earthworks';
 import {validateDesignLine, moveVertex, insertVertex, removeVertex, checkVertices, nextName} from './core/designLine';
 import {gradeLine, lineVolumes} from './core/lineGrading';
 import {createSnapIndex} from './core/snap';
@@ -175,7 +176,7 @@ export default function AppV4() {
   const designs = useMemo(() => designMeshes.map(d => d.error ? d : {...d, volume: d.kind === 'corridor' ? designVolumes.get('c') ?? null : d.kind === 'line' ? (d.mesh.base.length ? designVolumes.get('l:' + d.line.id) ?? null : null) : designVolumes.get('p:' + d.platform.id) ?? null}), [designMeshes, designVolumes]);
   const validDesigns = useMemo(() => designs.filter(d => d.mesh), [designs]);
   const meshDesigns = useMemo(() => designMeshes.filter(d => d.mesh), [designMeshes]);
-  const designAt = useMemo(() => elevationAt && validDesigns.length ? designSurfaceFunction(validDesigns.filter(d => d.kind === 'platform').map(d => d.platform), elevationAt, validDesigns.filter(d => d.kind === 'line').map(d => d.line), gradeCtx, validDesigns.filter(d => d.kind === 'corridor').map(d => (x, y, T) => corridorElevationAt(d.info, x, y, T))) : null, [elevationAt, validDesigns, gradeCtx]);
+  const designAt = useMemo(() => elevationAt && validDesigns.length ? designSurfaceFunction(validDesigns.filter(d => d.kind === 'platform').map(d => d.platform), elevationAt, validDesigns.filter(d => d.kind === 'line').map(d => d.line), gradeCtx, validDesigns.filter(d => d.kind === 'corridor').map(d => ({at: (x, y, T) => corridorElevationAt(d.info, x, y, T), base: corridorBase(d.info)}))) : null, [elevationAt, validDesigns, gradeCtx]);
   const frozenDesignAt = useRef(null); if (!liveEdit) frozenDesignAt.current = designAt; // 3D só se refaz ao soltar o arraste
   const designProfile = useMemo(() => {
     if (!profile || !designAt) return null; const n = 400, out = [];
@@ -216,7 +217,12 @@ export default function AppV4() {
     const draft = createSnapIndex({vertices: pickDraft.filter(p => p.index === undefined)});
     return {query: (x, y, r, m) => [baseSnap.query(x, y, r, m), draft.query(x, y, r, m)].filter(Boolean).sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.d - b.d)[0] || null};
   }, [baseSnap, pickDraft]);
-  const earthworks = useMemo(() => validDesigns.filter(d => d.volume).reduce((s, d) => ({cut: s.cut + d.volume.cut, fill: s.fill + d.volume.fill, area: s.area + d.volume.footprint}), {cut: 0, fill: 0, area: 0}), [validDesigns]);
+  // total do projeto: uma superfície combinada (objetos sobrepostos não contam duas vezes)
+  const earthworks = useMemo(() => {
+    if (!elevationAt || !validDesigns.length) return {cut: 0, fill: 0, area: 0, overlap: false};
+    try { const e = projectEarthworks(validDesigns, {terrainAt: elevationAt, gradeCtx, maxCells: liveEdit ? 12000 : 250000, volumes: validDesigns.map(d => d.volume)}); return e ? {cut: e.cut, fill: e.fill, area: e.footprint, overlap: e.overlap, sum: e.sum} : {cut: 0, fill: 0, area: 0, overlap: false}; }
+    catch { return {cut: 0, fill: 0, area: 0, overlap: false}; }
+  }, [validDesigns, elevationAt, gradeCtx, liveEdit]);
 
   // ---------- edição ----------
   const commit = useCallback((next, text) => { setHistory(h => [...h.slice(-19), doc]); setDoc(next); setSelected([]); setPickDraft([]); setRevision(v => v + 1); setMessage(text); }, [doc]);
@@ -598,6 +604,7 @@ export default function AppV4() {
             <button className="full danger" onClick={e => { e.stopPropagation(); commit({...doc, platforms: platforms.filter(x => x.id !== p.id)}, `${p.name} removida.`); }}>Excluir plataforma</button>
           </div>; })}
           {validDesigns.length > 0 && <div className="volume-card"><div><span>Corte total</span><b className="cut">{fmt(earthworks.cut, 1)} m³</b></div><div><span>Aterro total</span><b className="fill">{fmt(earthworks.fill, 1)} m³</b></div><div className="net"><span>Saldo total</span><b>{fmt(earthworks.cut - earthworks.fill, 1)} m³</b></div></div>}
+          {validDesigns.length > 0 && <p className="hint">{earthworks.overlap ? `Objetos se sobrepõem: o total usa a superfície final combinada (o trecho em comum conta uma vez; a soma simples daria ${fmt(earthworks.sum.cut, 1)} m³ de corte e ${fmt(earthworks.sum.fill, 1)} m³ de aterro).` : 'Total pela superfície final combinada de todos os objetos.'} Área terraplenada {fmt(earthworks.area, 0)} m².</p>}
           <p className="hint">Volume geométrico (sem empolamento/contração), integrado em grade fina sobre o terreno. Plataformas sobrepostas não são combinadas.</p>
         </Panel>
         <Panel title="Seções transversais">

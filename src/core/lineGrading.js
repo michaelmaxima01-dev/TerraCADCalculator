@@ -84,11 +84,16 @@ export function lineVolumes(points, triangles, line, {cell, maxCells = 250000, e
   const xs = info.base.map(v => v.x), ys = info.base.map(v => v.y);
   const bbox = {minX: Math.max(Math.min(...xs) - reach, tminX), maxX: Math.min(Math.max(...xs) + reach, tmaxX), minY: Math.max(Math.min(...ys) - reach, tminY), maxY: Math.min(Math.max(...ys) + reach, tmaxY)};
   return gridVolumes((x, y, T) => lineElevationAt(line, info, x, y, T), terrainAt, bbox, {cell, maxCells, inside: line.closed ? (x, y) => insidePolygonXY(x, y, info.base) : null,
-    // a linha aberta corta o projeto de forma brusca (no eixo e nas pontas): subamostrar essas células
-    refine: (x, y, h) => {
-      const q = lineNearest(info, x, y); if (q.d < h) return true;
-      if (line.closed) return false;
-      const b = info.base, n = b.length, along = (p0, p1) => { const dx = p1.x - p0.x, dy = p1.y - p0.y, l = Math.hypot(dx, dy) || 1; return ((x - p0.x) * dx + (y - p0.y) * dy) / l; };
-      return Math.abs(along(b[0], b[1])) < h || Math.abs(along(b[n - 1], b[n - 1].x === b[n - 2].x && b[n - 1].y === b[n - 2].y ? b[n - 1] : {x: 2 * b[n - 1].x - b[n - 2].x, y: 2 * b[n - 1].y - b[n - 2].y})) < h;
-    }});
+    refine: lineRefine(line, info)});
+}
+
+/** Células junto das descontinuidades da linha (a própria linha e as pontas retas) para subamostrar no volume. */
+export function lineRefine(line, info) {
+  return (x, y, h) => {
+    if (info.base.length < 2) return false;
+    const q = lineNearest(info, x, y); if (q.d < h) return true;
+    if (line.closed) return false;
+    const b = info.base, n = b.length, along = (p0, p1) => { const dx = p1.x - p0.x, dy = p1.y - p0.y, l = Math.hypot(dx, dy) || 1; return ((x - p0.x) * dx + (y - p0.y) * dy) / l; };
+    return Math.abs(along(b[0], b[1])) < h || Math.abs(along(b[n - 1], b[n - 1].x === b[n - 2].x && b[n - 1].y === b[n - 2].y ? b[n - 1] : {x: 2 * b[n - 1].x - b[n - 2].x, y: 2 * b[n - 1].y - b[n - 2].y})) < h;
+  };
 }

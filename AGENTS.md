@@ -7,7 +7,7 @@ Versão atual: **5.1** (gabarito de acesso no eixo + greide em tempo real, nota 
 ## Comandos
 - `npm ci` — instalar (Node.js 22.12+)
 - `npm run dev` — Vite em 127.0.0.1
-- `npm test` — `node --test` (126 testes do núcleo; devem continuar passando)
+- `npm test` — `node --test` (131 testes do núcleo; devem continuar passando)
 - `npm run build` — gera `dist/`
 - `node serve.mjs` — servidor de uso (somente módulos nativos), serve `dist/` em http://127.0.0.1:4173
 - `npm run build:hostinger` — versão online com login (`--mode hostinger`, `VITE_TERRACAD_AUTH=1`, `base ./`) em `dist-hostinger/` e pacote `pacote-hostinger/terracad-hostinger.zip` (guia: `PUBLICAR-HOSTINGER.md`)
@@ -42,6 +42,7 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 | `src/core/designLine.js` | Linha de projeto: `validateDesignLine`, `buildLineBase` (curvas de canto, estacas, cota por rampa/PI/terreno − desnível, `piStations`/`piZ`), `lineNearest` (índice em grade), `moveVertex`/`insertVertex`/`removeVertex`/`checkVertices` |
 | `src/core/corridor.js` | Acesso: `validateCorridor` (largura, caimento % abaulado/esquerda/direita, H:V, bermas), `compileCorridor` (eixo densificado na cota do greide), `corridorElevationAt`, `corridorEdges` (arco no lado externo, sem dobra no interno), `gradeCorridor` (tipo `road` + taludes), `corridorVolumes`, `serviceNotes`/`serviceNotesCSV` (nota de serviço por estaca) |
 | `src/components/CorridorCard.jsx`, `ServiceNotes.jsx` | Cartão do gabarito (modelos prontos, croqui da seção-tipo) e tabela da nota de serviço |
+| `src/core/earthworks.js` | `projectEarthworks`: total do projeto pela superfície combinada (sem dupla contagem; `sum` = soma simples, `overlap`) |
 | `src/core/lineGrading.js` | `compileLine`, `lineElevationAt`, `gradeLine` (lados, pontas retas, parede `wall` só para desenho, `daylightRuns`), `lineVolumes`; linha fechada para fora = plataforma |
 | `src/components/DesignLineCard.jsx`, `SlopeFields.jsx`, `Fields.jsx` | Cartão da linha; campos de bermas e término (linha e plataforma); `NumberField` |
 | `src/core/grading.js` | Plataformas: modelo de distância `z = Zb ± subida(d)` (Zb = cota da borda mais próxima; rampa = TIN dos vértices com cota), bermas (`slopeRise`, `slopeBreaks`, `benchLines`), malha de taludes com costura entre raios, volumes em grade, `shiftPlatform`/`applyPlaneSlope`/`flattenPlatform`, `clipTerrainMesh` |
@@ -63,13 +64,14 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 - Contorno: polígono simples, sem ilhas. Restrições não podem cruzar sem vértice comum.
 - Coordenadas UTM grandes: centralizar antes de triangular/renderizar (já feito em `tin.js` e nos viewports).
 - Curvas: convenção `z >= nível` (a cota mínima exata não gera linha).
-- Plataforma plana ou em rampa (cota por vértice; interior = TIN dos vértices). Mudar a cota de referência desloca a rampa inteira. Taludes pelo modelo de distância, com bermas opcionais (altura da bancada, largura da berma; corte, aterro ou ambos). Plataformas sobrepostas não são combinadas.
+- Plataforma plana ou em rampa (cota por vértice; interior = TIN dos vértices). Mudar a cota de referência desloca a rampa inteira. Taludes pelo modelo de distância, com bermas opcionais (altura da bancada, largura da berma; corte, aterro ou ambos). Objetos sobrepostos são combinados na superfície final (ver abaixo).
 - Linha de projeto: aberta (talude para um lado ou ambos, pontas retas) ou fechada (para fora = plataforma; para dentro = cava). Raio grande demais é limitado com aviso.
 - Bancadas: `startAfter` = talude contínuo até essa altura e 1ª berma nela; `count` (só com término por profundidade) = N bermas iguais em D, h = D/(N+1).
 - Término por profundidade: o talude desce com H:V e bermas de **corte** até `floorZ` (nunca acima da base) ou base − `depth`; o fundo segue plano até o terreno (na cava, ocupa o interior).
 - Acesso (gabarito): pista centrada no eixo na cota do greide com caimento transversal (afastamento + à esquerda); fora da pista, modelo de distância a partir do bordo; pontas retas. Segue o greide ao vivo (rascunho do PVI). Nota de serviço: offset = 1º ponto, a partir do bordo, onde o talude encontra o terreno (busca + bissecção na normal da estaca).
 - Desenho de plataforma: fecha clicando a < 12 px do 1º vértice (com ou sem atração), ignora clique repetido (< 1 mm), recusa vértice que cruza o desenho, e a ferramenta continua ativa para a próxima plataforma (Esc sai). Nomes sem repetição (`nextName`).
 - Durante o arraste (PIs ou PVIs), o 3D mantém o último recorte do terreno (o terreno inteiro esconderia o corte).
+- Superfície combinada (`designSurfaceFunction`/`combineAt`): a base de um objeto (piso, pista, interior da linha fechada para fora) vale sobre os taludes dos outros; onde taludes se sobrepõem, se algum escava vale a cota mais baixa, senão a mais alta. Seções, 3D e o total do projeto usam essa superfície; cada objeto mantém o próprio volume.
 - Volumes são geométricos (sem empolamento/contração).
 
 ## Convenções

@@ -143,6 +143,7 @@ function tAtDistance(at, d, tMax) {
  */
 export function castSlopes(base0, {closed, side, terrainAt, nearest, ruleFor, spacing, maxDistance, depth = null}) {
   const poly = side === 'left' || side === 'inside' ? base0.slice().reverse() : base0, n = poly.length, warnings = new Set();
+  if (depth && ruleFor('fill').bench) warnings.add('Com término por profundidade só valem as bermas de corte: as de aterro não são aplicadas.');
   const segCount = closed ? n : n - 1;
   const normal = i => { const a = poly[i], b = poly[(i + 1) % n], l = Math.hypot(b.x - a.x, b.y - a.y) || 1; return {x: (b.y - a.y) / l, y: -(b.x - a.x) / l}; };
   // 1. Amostras da base + raios (leque nos cantos convexos, bissetriz nos reentrantes, perpendicular nas pontas)

@@ -158,10 +158,16 @@ export function corridorVolumes(info, {terrainAt, points, triangles, cell, maxCe
   const reach = info.half + Math.max(slopeReach(t.maxZ - zMin, c.cutSlope, benchFor(c, 'cut')), slopeReach(zMax - t.minZ, c.fillSlope, benchFor(c, 'fill')), 0);
   const xs = b.map(v => v.x), ys = b.map(v => v.y);
   const bbox = {minX: Math.max(Math.min(...xs) - reach, t.minX), maxX: Math.min(Math.max(...xs) + reach, t.maxX), minY: Math.max(Math.min(...ys) - reach, t.minY), maxY: Math.min(Math.max(...ys) + reach, t.maxY)};
-  const n = b.length, along = (p0, p1, x, y) => { const dx = p1.x - p0.x, dy = p1.y - p0.y, l = Math.hypot(dx, dy) || 1; return ((x - p0.x) * dx + (y - p0.y) * dy) / l; };
-  return gridVolumes((x, y, T) => corridorElevationAt(info, x, y, T), terrainAt, bbox, {cell, maxCells,
-    refine: (x, y, h) => Math.abs(along(b[0], b[1], x, y)) < h || Math.abs(along(b[n - 1], {x: 2 * b[n - 1].x - b[n - 2].x, y: 2 * b[n - 1].y - b[n - 2].y}, x, y)) < h});
+  return gridVolumes((x, y, T) => corridorElevationAt(info, x, y, T), terrainAt, bbox, {cell, maxCells, refine: corridorRefine(info)});
 }
+
+/** Células junto das pontas retas do acesso (descontinuidade do projeto) para subamostrar no volume. */
+export function corridorRefine(info) {
+  const b = info.axis.base, n = b.length, along = (p0, p1, x, y) => { const dx = p1.x - p0.x, dy = p1.y - p0.y, l = Math.hypot(dx, dy) || 1; return ((x - p0.x) * dx + (y - p0.y) * dy) / l; };
+  return (x, y, h) => n > 1 && (Math.abs(along(b[0], b[1], x, y)) < h || Math.abs(along(b[n - 1], {x: 2 * b[n - 1].x - b[n - 2].x, y: 2 * b[n - 1].y - b[n - 2].y}, x, y)) < h);
+}
+/** Base do acesso (a pista) para a combinação com outros objetos. */
+export const corridorBase = info => (x, y) => { if (!info.ok) return false; const q = corridorLocate(info, x, y); return !q.atEnd && q.d <= info.half + 1e-9; };
 
 /**
  * Nota de serviço por estaca: terreno e greide no eixo, altura no eixo, bordos da pista e offsets (crista do corte
