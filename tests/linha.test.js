@@ -156,7 +156,7 @@ test('validateProject: v6 com linha de projeto; v5 sem linhas; v7 recusado', () 
   const r = validateProject({version: 6, points: pts, triangles: tri, designLines: [{id: 'l1', name: 'Acesso', pis: [{x: 10, y: 10}, {x: 50, y: 20, radius: 8}, {x: 90, y: 10}]}]});
   assert.equal(r.designLines.length, 1); assert.equal(r.designLines[0].pis[1].radius, 8); assert.equal(r.designLines[0].name, 'Acesso');
   assert.deepEqual(validateProject({version: 5, points: pts, triangles: tri}).designLines, []);
-  assert.throws(() => validateProject({version: 8, points: pts, triangles: tri}), /Versão/);
+  assert.throws(() => validateProject({version: 9, points: pts, triangles: tri}), /Versão/);
 });
 
 test('designSurfaceFunction considera as linhas depois das plataformas', () => {

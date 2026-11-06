@@ -12,7 +12,7 @@ export const DXF_LAYERS = {
   CONTORNO: {name: 'TC_CONTORNO', color: 5}, CN_MESTRA: {name: 'TC_CN_MESTRA', color: 1}, CN_INTERMEDIARIA: {name: 'TC_CN_INTERMEDIARIA', color: 9},
   PERFIL: {name: 'TC_PERFIL', color: 6}, PONTOS: {name: 'TC_PONTOS', color: 7}, ROTULOS: {name: 'TC_ROTULOS', color: 2},
   PLATAFORMA: {name: 'TC_PLATAFORMA', color: 253}, TALUDE_CORTE: {name: 'TC_TALUDE_CORTE', color: 30}, TALUDE_ATERRO: {name: 'TC_TALUDE_ATERRO', color: 140},
-  PLAT_BORDA: {name: 'TC_PLAT_BORDA', color: 7}, BERMA: {name: 'TC_BERMA', color: 2}, LP_EIXO: {name: 'TC_LP_EIXO', color: 6}, LP_OFFSET: {name: 'TC_LP_OFFSET', color: 3}, LP_CRISTA: {name: 'TC_LP_CRISTA', color: 2}, LP_PE: {name: 'TC_LP_PE', color: 30}, LP_FUNDO: {name: 'TC_LP_FUNDO', color: 5}, FUNDO: {name: 'TC_FUNDO', color: 8}, BERMA_FACE: {name: 'TC_BERMA_FACE', color: 42}, OFFSET: {name: 'TC_OFFSET', color: 3}, GREIDE: {name: 'TC_GREIDE', color: 1}, SECOES: {name: 'TC_SECOES', color: 4}
+  PLAT_BORDA: {name: 'TC_PLAT_BORDA', color: 7}, BERMA: {name: 'TC_BERMA', color: 2}, LP_EIXO: {name: 'TC_LP_EIXO', color: 6}, LP_OFFSET: {name: 'TC_LP_OFFSET', color: 3}, LP_CRISTA: {name: 'TC_LP_CRISTA', color: 2}, LP_PE: {name: 'TC_LP_PE', color: 30}, LP_FUNDO: {name: 'TC_LP_FUNDO', color: 5}, FUNDO: {name: 'TC_FUNDO', color: 8}, BERMA_FACE: {name: 'TC_BERMA_FACE', color: 42}, OFFSET: {name: 'TC_OFFSET', color: 3}, GREIDE: {name: 'TC_GREIDE', color: 1}, AC_PISTA: {name: 'TC_AC_PISTA', color: 33}, AC_BORDO: {name: 'TC_AC_BORDO', color: 7}, AC_OFFSET: {name: 'TC_AC_OFFSET', color: 3}, AC_EIXO: {name: 'TC_AC_EIXO', color: 6}, SECOES: {name: 'TC_SECOES', color: 4}
 };
 
 function polyline3D(layer, coords, closed) {
@@ -59,7 +59,14 @@ export function toDXF(model, options = {}) {
   // Projeto: plataformas e taludes (3DFACE por tipo), borda da plataforma e linha de offset
   const face = (layer, [a, b, c]) => { let f = pair(0, '3DFACE') + pair(8, layer); [a, b, c, c].forEach((p, k) => { f += pair(10 + k, n(p.x)) + pair(20 + k, n(p.y)) + pair(30 + k, n(p.z)); }); return f; };
   for (const d of designs) {
-    d.mesh.triangles.forEach((t, k) => { const type = d.mesh.types[k]; if (type === 'wall') return; out += face(type === 'platform' ? DXF_LAYERS.PLATAFORMA.name : type === 'floor' ? DXF_LAYERS.FUNDO.name : type === 'bench' ? DXF_LAYERS.BERMA_FACE.name : type === 'fill' ? DXF_LAYERS.TALUDE_ATERRO.name : DXF_LAYERS.TALUDE_CORTE.name, t.map(i => d.mesh.vertices[i])); });
+    d.mesh.triangles.forEach((t, k) => { const type = d.mesh.types[k]; if (type === 'wall') return; out += face(type === 'road' ? DXF_LAYERS.AC_PISTA.name : type === 'platform' ? DXF_LAYERS.PLATAFORMA.name : type === 'floor' ? DXF_LAYERS.FUNDO.name : type === 'bench' ? DXF_LAYERS.BERMA_FACE.name : type === 'fill' ? DXF_LAYERS.TALUDE_ATERRO.name : DXF_LAYERS.TALUDE_CORTE.name, t.map(i => d.mesh.vertices[i])); });
+    if (d.kind === 'corridor') { // acesso: eixo no greide, bordos da pista, offsets e bermas
+      if (d.mesh.axis?.length > 1) out += polyline3D(DXF_LAYERS.AC_EIXO.name, d.mesh.axis.map(p => [p.x, p.y, p.z]), false);
+      for (const e of [d.mesh.edges?.left, d.mesh.edges?.right]) if (e?.length > 1) out += polyline3D(DXF_LAYERS.AC_BORDO.name, e.map(p => [p.x, p.y, p.z]), false);
+      for (const run of d.mesh.daylightRuns || []) if (run.length > 1) out += polyline3D(DXF_LAYERS.AC_OFFSET.name, run.map(p => [p.x, p.y, p.z]), false);
+      (d.mesh.benchLines || []).forEach(line => { out += polyline3D(DXF_LAYERS.BERMA.name, line.map(p => [p.x, p.y, p.z]), false); });
+      continue;
+    }
     if (d.kind === 'line') { // linha de projeto: eixo 3D, offset e cristas/pés das bermas
       if (d.mesh.base?.length > 1) out += polyline3D(DXF_LAYERS.LP_EIXO.name, d.mesh.base.map(p => [p.x, p.y, p.z]), d.line.closed);
       (d.mesh.benchLines || []).forEach((line, k) => { out += polyline3D(d.mesh.benchLineKinds?.[k] === 'toe' ? DXF_LAYERS.LP_PE.name : DXF_LAYERS.LP_CRISTA.name, line.map(p => [p.x, p.y, p.z]), false); });
@@ -90,7 +97,7 @@ export function toLandXML({points, triangles, boundary = []}, {name = 'TerraCAD'
   const d = date.toISOString();
   let s = `<?xml version="1.0" encoding="UTF-8"?>\n<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2" date="${d.slice(0, 10)}" time="${d.slice(11, 19)}">\n`;
   s += ` <Units><Metric areaUnit="squareMeter" linearUnit="meter" volumeUnit="cubicMeter" temperatureUnit="celsius" pressureUnit="milliBars"/></Units>\n`;
-  s += ` <Application name="Terra CAD" version="5.0"/>\n <Surfaces>\n  <Surface name="${xml(name)}">\n`;
+  s += ` <Application name="Terra CAD" version="5.1"/>\n <Surfaces>\n  <Surface name="${xml(name)}">\n`;
   if (boundary.length) s += `   <SourceData><Boundaries><Boundary bndType="outer" edgeTrim="true" name="Contorno"><PntList3D>${[...boundary, boundary[0]].map(i => `${n(points[i].y)} ${n(points[i].x)} ${n(points[i].z)}`).join(' ')}</PntList3D></Boundary></Boundaries></SourceData>\n`;
   s += `   <Definition surfType="TIN">\n    <Pnts>\n`;
   for (const p of used) s += `     <P id="${id.get(p)}">${n(points[p].y)} ${n(points[p].x)} ${n(points[p].z)}</P>\n`;

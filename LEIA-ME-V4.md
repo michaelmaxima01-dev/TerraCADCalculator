@@ -2,6 +2,21 @@
 
 A versão 4 implementa o backlog recebido em 26/10/2026 sobre a base da V3 (curvas, volumes, perfil, DXF/LandXML), que continua inteira. Uso básico e triangulação: **LEIA-ME-V2.md**; curvas/volumes/exportação: **LEIA-ME-V3.md**.
 
+## Novidades da 5.1 · acesso pelo gabarito e nota de serviço
+
+**Gabarito de acesso (seção-tipo da via).** Trace o eixo (tecla P), crie o greide no perfil (tecla 4 → Criar greide) e, no painel **Projeto → Acesso · gabarito no eixo**, marque *Aplicar gabarito no eixo*. Defina largura da pista, caimento (%) abaulado ou para um lado, taludes de corte e aterro (H:V) e, se quiser, bermas, ou escolha um dos modelos prontos (acesso de mina, de serviço, estrada de caminhão fora de estrada). Arrastar um PVI no perfil move o corte e o aterro no 3D, nas seções e nos volumes **enquanto arrasta**.
+
+**Nota de serviço.** Na vista Seções (tecla 5), a aba *Nota de serviço* traz, para cada estaca:
+- cota do terreno e do greide no eixo, com a altura de corte (C) ou de aterro (A);
+- de cada lado, o bordo da pista (afastamento e cota);
+- de cada lado, o offset onde o talude encontra o terreno (afastamento a partir do eixo, cota e altura do talude).
+
+Clique numa linha para ir à estaca. *Exportar CSV* (ou Exportar → Nota de serviço) gera a planilha para a topografia de campo. O intervalo das estacas é o das seções.
+
+**Plataformas à mão livre.** Clique perto do 1º vértice (círculo verde "fechar", com ou sem atração) ou aperte Enter para fechar. A ferramenta continua ativa para desenhar a próxima, sem limite; Esc sai. Cliques repetidos são ignorados, e um vértice que faria o polígono se cruzar é recusado com aviso. Backspace retira o último vértice.
+
+O projeto salvo passa a ser JSON **v8** (guarda o gabarito); continuam abrindo os projetos v1–v7.
+
 ## Usar sem instalar dependências
 1. Extraia **todo** o `terra-cad-v4-portatil.zip`.
 2. Node.js 22.12 ou superior.

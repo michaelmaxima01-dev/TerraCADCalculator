@@ -8,7 +8,7 @@ const fmt2 = v => Number(v).toLocaleString('pt-BR', {minimumFractionDigits: 2, m
  * Bermas/bancadas e término do talude (mesmos campos para linha de projeto e plataforma).
  * @param {{label:string, benches:object, end:object, onChange:(changes:{benches?:object, end?:object}, text?:string)=>void}} props
  */
-export default function SlopeFields({label, benches, end, onChange, baseZ = null}) {
+export default function SlopeFields({label, benches, end, onChange, baseZ = null, noEnd = false}) {
   const bn = {...BENCH_DEFAULT, startAfter: 0, count: null, ...benches}, en = end || {mode: 'terrain', depth: 8, floorZ: null};
   const [openBench, setOpenBench] = useState(bn.enabled), [openEnd, setOpenEnd] = useState(en.mode === 'depth');
   const depthMode = en.mode === 'depth', byCount = depthMode && bn.count > 0;
@@ -29,7 +29,7 @@ export default function SlopeFields({label, benches, end, onChange, baseZ = null
       <label>Aplicar em<select aria-label={`Bermas da ${label} em`} value={bn.apply} onChange={e => setB('apply', e.target.value)}><option value="cut">Corte</option><option value="fill">Aterro</option><option value="both">Corte e aterro</option></select></label>
       <p className="hint">{byCount ? `Bancadas iguais: ${resolved}. A última face termina no fundo.` : 'A cada altura de bancada o talude ganha uma berma horizontal antes de seguir na inclinação H:V.'}</p>
     </details>
-    <details className="sub" open={openEnd} onToggle={e => setOpenEnd(e.currentTarget.open)}><summary>Término do talude · {depthMode ? (en.floorZ !== null ? `cota final ${fmt2(en.floorZ)}` : `desce ${fmt2(en.depth)} m`) : 'até o terreno'}</summary>
+    {!noEnd && <details className="sub" open={openEnd} onToggle={e => setOpenEnd(e.currentTarget.open)}><summary>Término do talude · {depthMode ? (en.floorZ !== null ? `cota final ${fmt2(en.floorZ)}` : `desce ${fmt2(en.depth)} m`) : 'até o terreno'}</summary>
       <label>Terminar<select aria-label={`Término do talude da ${label}`} value={depthMode ? (en.floorZ !== null ? 'floor' : 'depth') : 'terrain'} onChange={e => {
         const v = e.target.value;
         if (v === 'terrain') onChange({end: {...en, mode: 'terrain'}, benches: {...bn, count: null}}, `${label}: talude até o terreno.`);
@@ -39,6 +39,6 @@ export default function SlopeFields({label, benches, end, onChange, baseZ = null
       {depthMode && en.floorZ === null && <NumberField label="Profundidade (m)" aria-label={`Profundidade da ${label}`} value={en.depth} min="0.1" digits={2} onCommit={v => onChange({end: {...en, depth: v}})}/>}
       {depthMode && en.floorZ !== null && <NumberField label="Cota final (fundo)" aria-label={`Cota final da ${label}`} value={en.floorZ} digits={3} onCommit={v => onChange({end: {...en, floorZ: v}})}/>}
       <p className="hint">{depthMode ? 'O talude desce da linha com a inclinação e as bermas de corte; depois o fundo segue plano até encontrar o terreno (na cava, ocupa o interior).' : 'Corte sobe e aterro desce até encontrar o terreno (linha de offset).'}</p>
-    </details>
+    </details>}
   </>;
 }

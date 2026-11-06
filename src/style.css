@@ -355,3 +355,17 @@ button.danger:hover{background:#4d2a2d}
 .tc5 .cubage td{text-align:right;padding:4px 8px;border-top:1px solid var(--line);cursor:pointer}
 .tc5 .cubage th:first-child,.tc5 .cubage td:first-child{text-align:left}
 .tc5 .cubage tr.now td{background:#0d3a35}
+
+/* ---- acesso: gabarito e nota de serviço (v5.1) ---- */
+.tc5 .template-sketch { display: block; width: 100%; height: auto; margin: 6px 0 8px; background: var(--surface-2, #1b1712); border: 1px solid var(--line, #3a3128); border-radius: 6px; }
+.tc5 .template-sketch polyline { fill: none; stroke-width: 2.5; stroke-linejoin: round; }
+.tc5 .template-sketch .road { stroke: #e2c49a; stroke-width: 4; }
+.tc5 .template-sketch .cut { stroke: var(--cut, #c25f34); }
+.tc5 .template-sketch .fill { stroke: var(--fill, #a08a5c); }
+.tc5 .template-sketch .axis { stroke: #ff9de6; stroke-dasharray: 3 3; stroke-width: 1; }
+.tc5 .template-sketch text { fill: var(--text-2, #b9ad9c); font: 10px Consolas, monospace; }
+.tc5 .bottom-tabs { display: flex; gap: 2px; padding: 4px 8px 0; background: var(--surface, #15120e); border-top: 1px solid var(--line, #3a3128); }
+.tc5 .bottom-tabs button { padding: 4px 12px; border-radius: 6px 6px 0 0; border: 1px solid var(--line, #3a3128); border-bottom: none; background: transparent; color: var(--text-2, #b9ad9c); }
+.tc5 .bottom-tabs button.active { background: var(--surface-2, #1b1712); color: var(--text, #efe6d8); border-color: var(--accent, #d08a4a); }
+.tc5 .notes .cubage-head button { margin-left: auto; }
+.tc5 .notes thead tr:first-child th { text-align: center; border-bottom: 1px solid var(--line, #3a3128); }

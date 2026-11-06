@@ -15,6 +15,13 @@ function segmentsCross(a, b, c, d) {
   return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0;
 }
 
+/** Próximo nome livre com o prefixo (ex.: "Plataforma 3" mesmo depois de apagar a 2; nunca repete um nome). */
+export function nextName(list, prefix) {
+  const re = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} (\\d+)$`);
+  const top = (list || []).reduce((m, o) => { const k = re.exec(String(o?.name ?? '')); return k ? Math.max(m, Number(k[1])) : m; }, 0);
+  return `${prefix} ${top + 1}`;
+}
+
 /** Vértices sem repetição e sem auto-cruzamento (lança Error em português). */
 export function checkVertices(pts, closed) {
   const n = pts.length, segs = closed ? n : n - 1;

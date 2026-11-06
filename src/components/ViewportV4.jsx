@@ -6,7 +6,7 @@ import {SNAP_LABELS} from '../core/snap';
 
 const PICK_TOOLS = ['breakline', 'boundary', 'profile', 'platform', 'line'];
 // projeto em tons de mina: corte = solo ferruginoso exposto; aterro = terra compactada; bermas/fundo = cascalho de estrada de mina
-const DESIGN_COLORS = {platform: '#d3cdc0', cut: '#c25f34', fill: '#a08a5c', mixed: '#b07548', none: '#d3cdc0', wall: '#6f4a35', bench: '#ddd5c2', floor: '#cbc2ab'};
+const DESIGN_COLORS = {platform: '#d3cdc0', cut: '#c25f34', fill: '#a08a5c', mixed: '#b07548', none: '#d3cdc0', wall: '#6f4a35', bench: '#ddd5c2', floor: '#cbc2ab', road: '#b98d5f'};
 
 export default function ViewportV4(props) {
   const host = useRef(), labels = useRef(), cursor = useRef(), readout = useRef(), runtime = useRef(), latest = useRef(props);
@@ -101,7 +101,9 @@ export default function ViewportV4(props) {
       if (state.pointer) {
         const snap = editor ? snapAt(state.pointer.x, state.pointer.y) : null;
         state.snap = editor ? snap : null;
-        target = snap ? {x: snap.sx, y: snap.sy} : state.pointer;
+        const closing = editor && state.closeTarget?.(state.pointer.x, state.pointer.y);
+        target = closing ? toScreenXY(closing.x, closing.y) : snap ? {x: snap.sx, y: snap.sy} : state.pointer;
+        state.closing = !!closing;
         if (cursor.current) {
           cursor.current.style.display = p.crosshair && p.mode === '2D' ? 'block' : 'none';
           cursor.current.style.setProperty('--cursor-x', `${target.x}px`); cursor.current.style.setProperty('--cursor-y', `${target.y}px`);
@@ -122,6 +124,12 @@ export default function ViewportV4(props) {
           ctx.save(); ctx.strokeStyle = p.tool === 'platform' ? '#f2f5f7' : p.tool === 'profile' ? '#ff9de6' : '#ffcf75'; ctx.lineWidth = 2;
           ctx.beginPath(); verts.forEach((v, k) => k ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)); ctx.stroke();
           ctx.fillStyle = ctx.strokeStyle; verts.forEach(v => ctx.fillRect(v.x - 3, v.y - 3, 6, 6));
+          if (verts.length >= 3 && ['platform', 'line'].includes(p.tool)) { // 1º vértice: alvo de fechamento
+            ctx.save(); ctx.lineWidth = state.closing ? 2.5 : 1.2; ctx.strokeStyle = state.closing ? '#7dffb0' : 'rgba(242,245,247,.55)';
+            ctx.beginPath(); ctx.arc(verts[0].x, verts[0].y, state.closing ? 10 : 7, 0, Math.PI * 2); ctx.stroke();
+            if (state.closing) { ctx.font = '11px Consolas, monospace'; drawText(ctx, 'fechar', verts[0].x + 12, verts[0].y - 12, '#7dffb0'); }
+            ctx.restore();
+          }
           if (target) {
             ctx.setLineDash([6, 5]); ctx.beginPath(); ctx.moveTo(verts.at(-1).x, verts.at(-1).y); ctx.lineTo(target.x, target.y);
             if ((p.tool === 'platform' || p.tool === 'boundary') && verts.length > 1) ctx.lineTo(verts[0].x, verts[0].y);
@@ -184,6 +192,12 @@ export default function ViewportV4(props) {
     }
     el.addEventListener('wheel', wheel, {passive: false});
     const observer = new ResizeObserver(resize); observer.observe(el);
+    // fechamento do polígono: 1º vértice do rascunho a menos de 12 px (plataforma e linha)
+    const closeTarget = (x, y) => {
+      const p = latest.current; if (!['platform', 'line'].includes(p.tool) || (p.pickDraft?.length ?? 0) < 3) return null;
+      const f = p.pickDraft[0], q = toScreenXY(f.x, f.y); return Math.hypot(q.x - x, q.y - y) < 12 ? f : null;
+    };
+    state.closeTarget = closeTarget;
     const handleAt = (x, y, radius = 8) => {
       const p = latest.current; if (p.mode !== '2D' || p.tool !== 'orbit' || !p.handles?.length) return null;
       let best = null, bd = radius;
@@ -233,6 +247,8 @@ export default function ViewportV4(props) {
       if (!down || down.button !== 0 || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4 || p.mode !== '2D') return;
       const r = el.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
       if (PICK_TOOLS.includes(p.tool)) {
+        const f = closeTarget(x, y); // perto do 1º vértice: fecha (mesmo com a atração desligada)
+        if (f) { p.onPick({x: f.x, y: f.y, close: true}); return; }
         const s = snapAt(x, y), w = s ? {x: s.x, y: s.y} : planCoordinate(x, y);
         if (!w) return;
         p.onPick({x: w.x, y: w.y, index: s?.kind === 'node' && Number.isInteger(s.ref) ? s.ref : undefined, kind: s?.kind});
@@ -435,9 +451,38 @@ function drawDesigns(r, props) {
     }
     labels.push({v: world(base[0].x, base[0].y), text: line.name, color: sel ? '#ffffff' : '#ffe9a8', dx: 6, dy: 14});
   }
+  // ---- Projeto: acesso (gabarito aplicado no eixo + greide) ----
+  function drawCorridor(d) {
+    const m = d.mesh, edges = m.edges || {left: [], right: []}, axis = m.axis || [];
+    if (axis.length < 2) return;
+    if (mode === '3D') {
+      if (m.triangles.length) {
+        const pos = new Float32Array(m.triangles.length * 9), col = new Float32Array(m.triangles.length * 9), c = new THREE.Color();
+        m.triangles.forEach((t, k) => { c.set(DESIGN_COLORS[m.types[k]] || '#b9c0c7'); t.forEach((i, j) => { const v = m.vertices[i]; world(v.x, v.y, v.z + lift * .5).toArray(pos, k * 9 + j * 3); c.toArray(col, k * 9 + j * 3); }); });
+        const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
+        group.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({vertexColors: true, side: THREE.DoubleSide, roughness: .9, flatShading: true})));
+      }
+      segments(m.hatch.flatMap(([a, b]) => [world(a.x, a.y, a.z + lift * 1.5), world(b.x, b.y, b.z + lift * 1.5)]), '#3a2418', .55, true);
+      (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y, v.z + lift))), '#7dffb0', 1, true));
+      (m.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y, v.z + lift))), '#ffd27a', .95, true));
+      [edges.left, edges.right].forEach(e => segments(polyline(e.map(v => world(v.x, v.y, v.z + lift))), '#fff1d6', 1, true));
+      return;
+    }
+    const strip = [];
+    m.triangles.forEach((t, k) => { if (m.types[k] === 'road') t.forEach(i => strip.push(world(m.vertices[i].x, m.vertices[i].y))); });
+    if (strip.length) { const g2 = new THREE.BufferGeometry().setFromPoints(strip); group.add(new THREE.Mesh(g2, new THREE.MeshBasicMaterial({color: '#c99a68', transparent: true, opacity: .42, side: THREE.DoubleSide, depthTest: false}))); }
+    const cutHatch = [], fillHatch = [];
+    m.hatch.forEach(([a, b, md]) => (md === 'cut' ? cutHatch : fillHatch).push(world(a.x, a.y), world(b.x, b.y)));
+    segments(cutHatch, '#ff9f6b', .8); segments(fillHatch, '#6fc3ff', .8);
+    (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y))), '#7dffb0'));
+    (m.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y))), '#ffd27a', .7));
+    [edges.left, edges.right].forEach(e => segments(polyline(e.map(v => world(v.x, v.y))), '#fff1d6'));
+    labels.push({v: world(axis[0].x, axis[0].y), text: `Acesso · pista ${d.corridor.width.toLocaleString('pt-BR')} m`, color: '#ffe3bf', dx: 6, dy: 26});
+  }
   // ---- Projeto: plataformas e taludes ----
   for (const d of designs || []) {
     if (d.kind === 'line') { drawLine(d); continue; }
+    if (d.kind === 'corridor') { drawCorridor(d); continue; }
     const sel = d.platform.id === selectedPlatform;
     if (mode === '3D') {
       const pos = new Float32Array(d.mesh.triangles.length * 9), col = new Float32Array(d.mesh.triangles.length * 9), c = new THREE.Color();

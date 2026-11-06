@@ -111,7 +111,7 @@ test('validateProject abre v5 com rampa e bermas e continua abrindo v4', () => {
   assert.equal(r.platforms[0].benches.apply, 'both');
   const r4 = validateProject({version: 4, points: pts, triangles: tri, platforms: [{...platform, polygon: platform.polygon.map(({x, y}) => ({x, y})), benches: undefined}]});
   assert.equal(r4.platforms[0].benches.enabled, false);
-  assert.throws(() => validateProject({version: 8, points: pts, triangles: tri}), /Versão/);
+  assert.throws(() => validateProject({version: 9, points: pts, triangles: tri}), /Versão/);
 });
 
 // ---------- mão livre: fechar no 1º vértice e cliques repetidos ----------
@@ -122,4 +122,12 @@ test('cleanRing: fechar clicando no 1º vértice e cliques duplos não geram vé
   assert.deepEqual(r.map(p => [p.x, p.y]), [[0, 0], [10, 0], [10, 10], [0, 10]]);
   assert.equal(validatePolygon(r).length, 4);
   assert.equal(cleanRing([{x: 0, y: 0}, {x: 1, y: 0}]).length, 2);
+});
+
+import {nextName} from '../src/core/designLine.js';
+test('nextName: numeração livre sem repetir nomes', () => {
+  assert.equal(nextName([], 'Plataforma'), 'Plataforma 1');
+  assert.equal(nextName([{name: 'Plataforma 1'}, {name: 'Plataforma 3'}], 'Plataforma'), 'Plataforma 4');
+  assert.equal(nextName([{name: 'Pátio'}, {name: 'Plataforma 2'}], 'Plataforma'), 'Plataforma 3');
+  assert.equal(nextName([{name: 'Linha 1x'}], 'Linha'), 'Linha 1');
 });

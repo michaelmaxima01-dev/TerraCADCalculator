@@ -124,7 +124,7 @@ export function designElevationAt(platform, x, y, terrainZ) {
 }
 
 /** Função de cota de projeto: plataformas e depois linhas de projeto (vale a primeira que cobre o ponto). */
-export function designSurfaceFunction(platforms, terrainAt, lines = [], gradeCtx = null) {
+export function designSurfaceFunction(platforms, terrainAt, lines = [], gradeCtx = null, extras = []) {
   const list = platforms.filter(p => p.visible !== false), ls = lines.filter(l => l.visible !== false).map(l => ({l, info: compileLine(l, terrainAt, gradeCtx)}));
   return (x, y) => {
     let t;
@@ -135,6 +135,10 @@ export function designSurfaceFunction(platforms, terrainAt, lines = [], gradeCtx
     for (const {l, info} of ls) {
       if (t === undefined) t = terrainAt(x, y);
       const z = lineElevationAt(l, info, x, y, t); if (z !== null) return z;
+    }
+    for (const f of extras) { // outros projetos (ex.: acesso pelo gabarito no eixo)
+      if (t === undefined) t = terrainAt(x, y);
+      const z = f(x, y, t); if (z !== null) return z;
     }
     return null;
   };
