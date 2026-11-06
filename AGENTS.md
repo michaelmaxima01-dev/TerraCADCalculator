@@ -7,7 +7,7 @@ Versão atual: **5.1** (gabarito de acesso no eixo + greide em tempo real, nota 
 ## Comandos
 - `npm ci` — instalar (Node.js 22.12+)
 - `npm run dev` — Vite em 127.0.0.1
-- `npm test` — `node --test` (125 testes do núcleo; devem continuar passando)
+- `npm test` — `node --test` (126 testes do núcleo; devem continuar passando)
 - `npm run build` — gera `dist/`
 - `node serve.mjs` — servidor de uso (somente módulos nativos), serve `dist/` em http://127.0.0.1:4173
 - `npm run build:hostinger` — versão online com login (`--mode hostinger`, `VITE_TERRACAD_AUTH=1`, `base ./`) em `dist-hostinger/` e pacote `pacote-hostinger/terracad-hostinger.zip` (guia: `PUBLICAR-HOSTINGER.md`)
@@ -87,7 +87,7 @@ React 19 · Vite 7 · Tailwind 4 (só preflight; o estilo real está em `src/sty
 4. Não versionar desenhos de clientes (DWG/DXF reais); usar fixtures sintéticas.
 
 ## Backlog sugerido
-Corredor (seção-tipo ao longo do eixo) · clotoides · Worker/LOD para arraste com nuvens grandes (meta < 100 ms não atingida em Chromium sem GPU com 10 mil pontos) · volume superfície × superfície (ex.: levantamentos jan × mar/2022 da Mina Cutia) · arrastar vértices de plataforma · curvas importadas como linhas obrigatórias · planimetria do DWG como fundo · textos de cota (TEXT) como pontos · triangulação mais rápida (≈3 s para 10 mil pontos) · reduzir estado do `AppV4` (reducer/store) · `constraintsFor` O(n²).
+Valeta e superelevação no gabarito do acesso · clotoides · Worker/LOD para arraste com nuvens grandes (meta < 100 ms não atingida em Chromium sem GPU com 10 mil pontos) · volume superfície × superfície (ex.: levantamentos jan × mar/2022 da Mina Cutia) · arrastar vértices de plataforma · curvas importadas como linhas obrigatórias · planimetria do DWG como fundo · textos de cota (TEXT) como pontos · triangulação mais rápida (≈3 s para 10 mil pontos) · reduzir estado do `AppV4` (reducer/store) · `constraintsFor` O(n²).
 
 ## Pendências com o usuário
 Confirmar o significado de "modelo aranha" e de "curso que mostre as milhas" (provavelmente cursor em mira).
