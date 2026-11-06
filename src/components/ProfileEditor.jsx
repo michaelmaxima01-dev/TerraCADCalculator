@@ -24,7 +24,7 @@ function interp(series, s) {
  * Editor do perfil longitudinal: terreno, greide editável (PVIs com curvas verticais),
  * perfil do projeto (plataformas/taludes), cota de referência e marcas das seções.
  */
-export default function ProfileEditor({profile, grade, onGradeChange, onGradeDraft, designProfile, referenceZ, precision = 3, height = 260, sectionStations = [], currentStation = null, onStation, onRemove, onNotice, zoomSensitivity = 1, showTable = true}) {
+export default function ProfileEditor({profile, grade, onGradeChange, onGradeDraft, designProfile, referenceZ, precision = 3, height = 260, sectionStations = [], currentStation = null, onStation, onRemove, onNotice, zoomSensitivity = 1, showTable = true, cut = null}) {
   const host = useRef(), svg = useRef();
   const [width, setWidth] = useState(900), [mode, setMode] = useState('nav'), [view, setView] = useState(null), [hover, setHover] = useState(null);
   const [selected, setSelected] = useState(null), [draft, setDraft] = useState(null);
@@ -151,6 +151,7 @@ export default function ProfileEditor({profile, grade, onGradeChange, onGradeDra
       <span>Terreno <em>{summary.minZ?.toFixed(precision) ?? '—'} – {summary.maxZ?.toFixed(precision) ?? '—'}</em></span>
       <span>Exagero vert. <em>{ve.toFixed(1)}×</em></span>
       <span className="spacer"/>
+      {cut && grade.length > 1 && <button className={cut.active ? 'cut-on' : 'primary'} aria-pressed={cut.active} onClick={cut.onToggle} title={cut.active ? 'O acesso está cortando pelo greide. Clique para desligar.' : 'Gera o corte/aterro do acesso ao longo do eixo, na cota do greide (gabarito do painel Projeto)'}>{cut.active ? `✓ Cortando: pista ${cut.width.toLocaleString('pt-BR')} m` : '✂ Cortar acesso no greide'}</button>}
       <button onClick={() => setView(null)} title="Enquadrar perfil">⤢</button>
       {grade.length > 0 && <button onClick={() => { onGradeChange([], 'Greide removido.'); setSelected(null); }}>Limpar greide</button>}
       <button onClick={onRemove}>Remover traçado</button>

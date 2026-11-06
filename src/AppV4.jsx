@@ -489,7 +489,12 @@ export default function AppV4() {
     <Viewport {...common} mode={mode}/>{mode === '2D' && <Compass/>}
   </div>;
   const picking = ['boundary', 'breakline', 'profile', 'platform', 'line'].includes(tool), pickCount = tool === 'boundary' ? selected.length : pickDraft.length, minPick = ['boundary', 'platform'].includes(tool) ? 3 : 2;
-  const editor = profile && <ProfileEditor profile={profile} grade={grade} onGradeDraft={setGradeDraft} onGradeChange={(g, text) => commit({...doc, grade: g}, corridor.enabled ? 'PVI movido: acesso, taludes, seções, nota de serviço e volumes recalculados.' : designLines.some(l => l.elevation.mode === 'grade') ? text : 'Greide alterado. Nada segue o greide ainda: ative o gabarito de acesso (painel Projeto) ou, na linha de projeto, escolha a cota “Seguir o greide do eixo”.')} designProfile={designProfile} referenceZ={referenceZ} precision={style.precision}
+  const toggleCut = () => {
+    const on = !corridor.enabled;
+    commit({...doc, corridor: {...corridor, enabled: on}}, on ? `Corte do acesso ligado: pista de ${fmt(corridor.width, 2)} m na cota do greide, talude ${fmt(corridor.cutSlope, 2)}:1. Arraste os PVIs (Editar greide) e veja o corte no 3D; medidas no painel Projeto → Acesso.` : 'Corte do acesso desligado.');
+    if (on) { setSideTab('design'); setInspectorOpen(true); }
+  };
+  const editor = profile && <ProfileEditor cut={{active: corridor.enabled, width: corridor.width, onToggle: toggleCut}} profile={profile} grade={grade} onGradeDraft={setGradeDraft} onGradeChange={(g, text) => commit({...doc, grade: g}, corridor.enabled ? 'PVI movido: acesso, taludes, seções, nota de serviço e volumes recalculados.' : designLines.some(l => l.elevation.mode === 'grade') ? text : 'Greide alterado, mas nada está cortando ainda: clique em “✂ Cortar acesso no greide” na barra do perfil.')} designProfile={designProfile} referenceZ={referenceZ} precision={style.precision}
     sectionStations={stationList} currentStation={currentStation} onStation={s => { const i = stationList.reduce((b, v, k) => Math.abs(v - s) < Math.abs(stationList[b] - s) ? k : b, 0); setSectionIndex(i); }}
     onRemove={() => commit({...doc, alignment: [], grade: []}, 'Eixo e greide removidos.')} onNotice={setMessage} zoomSensitivity={zoomSensitivity}
     height={layout === 'profile' ? Math.max(360, viewportH - (grade.length ? 360 : 190)) : 210} showTable={layout === 'profile'}/>;

@@ -369,3 +369,4 @@ button.danger:hover{background:#4d2a2d}
 .tc5 .bottom-tabs button.active { background: var(--surface-2, #1b1712); color: var(--text, #efe6d8); border-color: var(--accent, #d08a4a); }
 .tc5 .notes .cubage-head button { margin-left: auto; }
 .tc5 .notes thead tr:first-child th { text-align: center; border-bottom: 1px solid var(--line, #3a3128); }
+.tc5 .profile-head .cut-on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
