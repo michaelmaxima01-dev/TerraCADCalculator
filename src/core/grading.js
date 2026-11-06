@@ -135,10 +135,10 @@ export function designElevationAt(platform, x, y, terrainZ) {
  */
 export function designSurfaceFunction(platforms, terrainAt, lines = [], gradeCtx = null, extras = []) {
   const items = [];
-  for (const p of platforms.filter(p => p.visible !== false)) { const c = compile(p); items.push({at: (x, y, T) => designElevationAt(p, x, y, T), base: (x, y) => insidePolygonXY(x, y, c.poly)}); }
+  for (const p of platforms.filter(p => p.visible !== false)) { const c = compile(p); items.push({kind: 'platform', at: (x, y, T) => designElevationAt(p, x, y, T), base: (x, y) => insidePolygonXY(x, y, c.poly)}); }
   for (const l of lines.filter(l => l.visible !== false)) {
     const info = compileLine(l, terrainAt, gradeCtx), poly = info.platform?.polygon;
-    items.push({at: (x, y, T) => lineElevationAt(l, info, x, y, T), base: poly ? (x, y) => insidePolygonXY(x, y, poly) : () => false});
+    items.push({kind: 'platform', at: (x, y, T) => lineElevationAt(l, info, x, y, T), base: poly ? (x, y) => insidePolygonXY(x, y, poly) : () => false});
   }
   for (const e of extras) items.push(typeof e === 'function' ? {at: e, base: () => false} : e);
   return combineAt(items, terrainAt);
@@ -146,8 +146,7 @@ export function designSurfaceFunction(platforms, terrainAt, lines = [], gradeCtx
 
 /** Combina objetos {at, base} pelas regras de designSurfaceFunction (exportada para testes e volumes). */
 export function combineAt(items, terrainAt) {
-  if (items.length === 1) { const [o] = items; return (x, y, T) => o.at(x, y, T === undefined ? terrainAt(x, y) : T); }
-  return (x, y, T) => {
+  const f = items.length === 1 ? ((o => (x, y, T) => o.at(x, y, T === undefined ? terrainAt(x, y) : T))(items[0])) : (x, y, T) => {
     if (T === undefined) T = terrainAt(x, y);
     for (const o of items) if (o.base(x, y)) { const z = o.at(x, y, T); if (z !== null) return z; }
     let lo = Infinity, hi = -Infinity, any = false;
@@ -156,6 +155,22 @@ export function combineAt(items, terrainAt) {
     if (T === null || T === undefined) return lo;
     return lo < T ? lo : hi;
   };
+  /** Tipo da base que vale em (x,y) ('platform', 'road'…) ou null fora das bases. */
+  f.classify = (x, y, T) => {
+    if (T === undefined) T = terrainAt(x, y);
+    for (const o of items) if (o.base(x, y) && o.at(x, y, T) !== null) return o.kind || 'platform';
+    return null;
+  };
+  /** Cota e tipo de base numa única passada (para amostrar a superfície final). */
+  f.evaluate = (x, y, T) => {
+    if (T === undefined) T = terrainAt(x, y);
+    for (const o of items) if (o.base(x, y)) { const z = o.at(x, y, T); if (z !== null) return {z, kind: o.kind || 'platform'}; }
+    let lo = Infinity, hi = -Infinity, any = false;
+    for (const o of items) { const z = o.at(x, y, T); if (z === null) continue; any = true; if (z < lo) lo = z; if (z > hi) hi = z; }
+    if (!any) return {z: null, kind: null};
+    return {z: T === null || T === undefined ? lo : lo < T ? lo : hi, kind: null};
+  };
+  return f;
 }
 
 /** Desloca toda a plataforma (cota e cotas dos vértices) por dz, preservando a rampa. */

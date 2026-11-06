@@ -6,6 +6,10 @@ import {SNAP_LABELS} from '../core/snap';
 
 const PICK_TOOLS = ['breakline', 'boundary', 'profile', 'platform', 'line'];
 // projeto em tons de mina: corte = solo ferruginoso exposto; aterro = terra compactada; bermas/fundo = cascalho de estrada de mina
+// Materiais compartilhados da camada de projeto: redesenhar não recompila shaders (antes, cada quadro do arraste
+// descartava os materiais e o WebGL recompilava o programa)
+const SHARED_MATS = new Map();
+function sharedMat(key, make) { let m = SHARED_MATS.get(key); if (!m) { m = make(); m.userData.shared = true; SHARED_MATS.set(key, m); } return m; }
 const DESIGN_COLORS = {platform: '#d3cdc0', cut: '#c25f34', fill: '#a08a5c', mixed: '#b07548', none: '#d3cdc0', wall: '#6f4a35', bench: '#ddd5c2', floor: '#cbc2ab', road: '#b98d5f'};
 
 export default function ViewportV4(props) {
@@ -342,7 +346,7 @@ export default function ViewportV4(props) {
     r.world = world; r.lift = lift; r.mode = mode; r.segmentsTo = (target, vectors, color, opacity = 1, depthTest = false) => {
       if (!vectors.length) return;
       const positions = new Float32Array(vectors.length * 3); vectors.forEach((v, i) => v.toArray(positions, i * 3));
-      target.add(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(positions, 3)), new THREE.LineBasicMaterial({color, transparent: opacity < 1, opacity, depthTest})));
+      target.add(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(positions, 3)), sharedMat(`line:${color}:${opacity}:${depthTest}`, () => new THREE.LineBasicMaterial({color, transparent: opacity < 1, opacity, depthTest}))));
     };
     r.designGroup = new THREE.Group(); scene.add(r.designGroup); r.designLabels = [];
     drawDesigns(r, latest.current);
@@ -352,22 +356,12 @@ export default function ViewportV4(props) {
         segments(polyline(alignment.map(p => world(p.x, p.y))), '#ff7ad9');
         r.textLabels.push({v: world(alignment[0].x, alignment[0].y), text: '0+000', color: '#ff9de6', dx: 6, dy: -12});
       }
-      if (sectionLines?.length) {
-        const all = [], cur = [];
-        for (const s of sectionLines) (currentStation !== null && currentStation !== undefined && Math.abs(s.station - currentStation) < 1e-6 ? cur : all).push(world(s.left.x, s.left.y), world(s.right.x, s.right.y));
-        segments(all, '#5fd3e6', .85); segments(cur, '#ffe066', 1);
-      }
     } else {
       if (profileSamples?.length) { const out = []; let prev = null; for (const s of profileSamples) { const v = s.z === null ? null : world(s.x, s.y, s.z + lift * 2); if (v && prev) out.push(prev, v); prev = v; } segments(out, '#ff5fcf', 1, true); }
-      if (gradeLine3D?.length > 1) segments(polyline(gradeLine3D.map(p => world(p.x, p.y, p.z + lift))), '#ff3b5c', 1, false);
-      const cs = currentStation !== null && currentStation !== undefined ? (sectionLines || []).find(s => Math.abs(s.station - currentStation) < 1e-6) : null;
-      if (cs) { // seção ativa: plano vertical translúcido com contorno ciano
-        const z0 = minZ - (maxZ - minZ) * .15 - 1, z1 = maxZ + (maxZ - minZ) * .25 + 1, q = [world(cs.left.x, cs.left.y, z0), world(cs.right.x, cs.right.y, z0), world(cs.right.x, cs.right.y, z1), world(cs.left.x, cs.left.y, z1)];
-        const pos = new Float32Array(18); [q[0], q[1], q[2], q[0], q[2], q[3]].forEach((v, k) => v.toArray(pos, k * 3));
-        scene.add(new THREE.Mesh(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(pos, 3)), new THREE.MeshBasicMaterial({color: '#00ffd0', transparent: true, opacity: .16, side: THREE.DoubleSide, depthWrite: false})));
-        segments(polyline(q, true), '#00ffd0', 1, false);
-      }
     }
+    // seções, greide e estaca ativa: camada própria (mudam a cada quadro do arraste do PVI sem refazer o terreno)
+    r.zRange = {minZ, maxZ}; r.overlayGroup = new THREE.Group(); scene.add(r.overlayGroup);
+    drawOverlay(r, latest.current);
     if (mode === '3D' && Number.isFinite(referenceZ) && presentation.referencePlane && triangles.length) {
       const positions = new Float32Array(points.length * 3);
       points.forEach((p, i) => world(p.x, p.y, referenceZ).toArray(positions, i * 3));
@@ -385,10 +379,11 @@ export default function ViewportV4(props) {
     r.resize(); r.invalidate();
   }, [props.points, props.triangles, props.mode, props.presentation, props.fitKey, props.contours, props.contourStyle?.visible2D, props.contourStyle?.visible3D,
     plan ? props.constraints : null, plan ? props.visibleIndices : null, plan ? props.layers : null, plan ? props.groupColors : null, plan ? props.boundary : null,
-    plan ? props.alignment : null, props.sectionLines, props.currentStation,
-    plan ? null : props.terrain3D, plan ? null : props.designAt, plan ? null : props.profileSamples, plan ? null : props.referenceZ, plan ? null : props.gradeLine3D]);
+    plan ? props.alignment : null,
+    plan ? null : props.terrain3D, plan ? null : props.designAt, plan ? null : props.profileSamples, plan ? null : props.referenceZ]);
+  useEffect(() => { const r = runtime.current; if (!r?.overlayGroup) return; drawOverlay(r, props); r.invalidate(); }, [props.sectionLines, props.currentStation, props.gradeLine3D]);
   // camada de projeto: redesenha só ela quando plataformas/linhas mudam (arraste fluido, sem refazer o terreno)
-  useEffect(() => { const r = runtime.current; if (!r?.designGroup) return; drawDesigns(r, props); r.invalidate(); }, [props.designs, props.selectedPlatform, props.selectedLine]);
+  useEffect(() => { const r = runtime.current; if (!r?.designGroup) return; drawDesigns(r, props); r.invalidate(); }, [props.designs, props.finalSurface, props.selectedPlatform, props.selectedLine]);
   useEffect(() => {
     const r = runtime.current;
     if (r) { r.controls.enabled = props.tool === 'orbit' || props.mode === '3D' || PICK_TOOLS.includes(props.tool); r.renderer.domElement.style.cursor = props.mode === '2D' && props.crosshair ? 'none' : 'grab'; r.invalidate(); }
@@ -410,10 +405,43 @@ function hypsometric(t, style, out) {
   return out.copy(HYPSO.at(-1)[1]);
 }
 /** Desenha plataformas e linhas de projeto no grupo próprio da cena (sem reconstruir o terreno). */
+function drawOverlay(r, props) {
+  const group = r.overlayGroup; if (!group) return;
+  group.traverse(o => { if (o !== group) { o.geometry?.dispose(); if (!o.material?.userData?.shared) o.material?.dispose(); } }); group.clear();
+  const {sectionLines, currentStation, gradeLine3D} = props, world = r.world, lift = r.lift, segments = (v, c, op = 1, dt = false) => r.segmentsTo(group, v, c, op, dt);
+  const polyline = (coords, closed = false) => { const out = []; for (let i = 1; i < coords.length; i++) out.push(coords[i - 1], coords[i]); if (closed && coords.length > 2) out.push(coords.at(-1), coords[0]); return out; };
+  const hasCur = currentStation !== null && currentStation !== undefined;
+  if (r.mode === '2D') {
+    if (!sectionLines?.length) return;
+    const all = [], cur = [];
+    for (const s of sectionLines) (hasCur && Math.abs(s.station - currentStation) < 1e-6 ? cur : all).push(world(s.left.x, s.left.y), world(s.right.x, s.right.y));
+    segments(all, '#5fd3e6', .85); segments(cur, '#ffe066', 1);
+    return;
+  }
+  if (gradeLine3D?.length > 1) segments(polyline(gradeLine3D.map(p => world(p.x, p.y, p.z + lift))), '#ff3b5c', 1, false);
+  const cs = hasCur ? (sectionLines || []).find(s => Math.abs(s.station - currentStation) < 1e-6) : null;
+  if (cs) { // seção ativa: plano vertical translúcido com contorno ciano
+    const {minZ, maxZ} = r.zRange, z0 = minZ - (maxZ - minZ) * .15 - 1, z1 = maxZ + (maxZ - minZ) * .25 + 1, q = [world(cs.left.x, cs.left.y, z0), world(cs.right.x, cs.right.y, z0), world(cs.right.x, cs.right.y, z1), world(cs.left.x, cs.left.y, z1)];
+    const pos = new Float32Array(18); [q[0], q[1], q[2], q[0], q[2], q[3]].forEach((v, k) => v.toArray(pos, k * 3));
+    group.add(new THREE.Mesh(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(pos, 3)), sharedMat('section-plane', () => new THREE.MeshBasicMaterial({color: '#00ffd0', transparent: true, opacity: .16, side: THREE.DoubleSide, depthWrite: false}))));
+    segments(polyline(q, true), '#00ffd0', 1, false);
+  }
+}
+
 function drawDesigns(r, props) {
   const group = r.designGroup; if (!group) return;
-  group.traverse(o => { if (o !== group) { o.geometry?.dispose(); o.material?.dispose(); } }); group.clear();
-  const labels = r.designLabels = [], {designs, selectedPlatform, selectedLine} = props, mode = r.mode, world = r.world, lift = r.lift;
+  group.traverse(o => { if (o !== group) { o.geometry?.dispose(); if (!o.material?.userData?.shared) o.material?.dispose(); } }); group.clear();
+  const labels = r.designLabels = [], {designs, selectedPlatform, selectedLine, finalSurface} = props, mode = r.mode, world = r.world, lift = r.lift;
+  const faces = m => {
+    if (!m.triangles.length) return;
+    const pos = new Float32Array(m.triangles.length * 9), col = new Float32Array(m.triangles.length * 9), c = new THREE.Color();
+    m.triangles.forEach((t, k) => { c.set(DESIGN_COLORS[m.types[k]] || '#b9c0c7'); t.forEach((i, j) => { const v = m.vertices[i]; world(v.x, v.y, v.z + lift * .5).toArray(pos, k * 9 + j * 3); c.toArray(col, k * 9 + j * 3); }); });
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
+    group.add(new THREE.Mesh(geo, sharedMat('design-faces', () => new THREE.MeshStandardMaterial({vertexColors: true, side: THREE.DoubleSide, roughness: .88, flatShading: true}))));
+  };
+  // no 3D, a face do projeto é a superfície final combinada (objetos sobrepostos já resolvidos)
+  const final3D = mode === '3D' && finalSurface?.triangles?.length;
+  if (final3D) faces(finalSurface);
   const segments = (vectors, color, opacity = 1, depthTest = false) => r.segmentsTo(group, vectors, color, opacity, depthTest);
   const polyline = (coords, closed = false) => { const out = []; for (let i = 1; i < coords.length; i++) out.push(coords[i - 1], coords[i]); if (closed && coords.length > 2) out.push(coords.at(-1), coords[0]); return out; };
     // ---- Projeto: linhas de projeto ----
@@ -421,14 +449,9 @@ function drawDesigns(r, props) {
     const {line, mesh: m} = d, sel = line.id === selectedLine, base = m.base || [];
     if (base.length < 2) return;
     if (mode === '3D') {
-      if (m.triangles.length) {
-        const pos = new Float32Array(m.triangles.length * 9), col = new Float32Array(m.triangles.length * 9), c = new THREE.Color();
-        m.triangles.forEach((t, k) => { c.set(DESIGN_COLORS[m.types[k]] || '#b9c0c7'); t.forEach((i, j) => { const v = m.vertices[i]; world(v.x, v.y, v.z + lift * .5).toArray(pos, k * 9 + j * 3); c.toArray(col, k * 9 + j * 3); }); });
-        const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
-        group.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({vertexColors: true, side: THREE.DoubleSide, roughness: .85, flatShading: true})));
-      }
+      if (!final3D) faces(m);
       segments(m.hatch.flatMap(([a, b]) => [world(a.x, a.y, a.z + lift * 1.5), world(b.x, b.y, b.z + lift * 1.5)]), '#3a2418', .55, true); // hachura técnica nas rampas
-      (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y, v.z + lift)), line.closed), '#7dffb0', 1, true));
+      (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y, v.z + lift))), '#7dffb0', 1, true));
       (m.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y, v.z + lift))), '#ffd27a', .95, true));
       segments(polyline(base.map(v => world(v.x, v.y, v.z + lift)), line.closed), sel ? '#ffffff' : '#ffe9a8', 1, true);
       return;
@@ -436,12 +459,12 @@ function drawDesigns(r, props) {
     const cutHatch = [], fillHatch = [];
     m.hatch.forEach(([a, b, md]) => (md === 'cut' ? cutHatch : fillHatch).push(world(a.x, a.y), world(b.x, b.y)));
     segments(cutHatch, '#ff9f6b', .8); segments(fillHatch, '#6fc3ff', .8);
-    (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y)), line.closed), '#7dffb0'));
+    (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y))), '#7dffb0'));
     (m.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y))), '#ffd27a', .7));
     segments(polyline(base.map(v => world(v.x, v.y)), line.closed), sel ? '#ffffff' : '#ffe08a');
     // PIs como quadrados e estacas ao longo da linha
     const piPos = new Float32Array(line.pis.length * 3); line.pis.forEach((p, i) => world(p.x, p.y).toArray(piPos, i * 3));
-    group.add(new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(piPos, 3)), new THREE.PointsMaterial({size: sel ? 9 : 7, color: sel ? '#ffffff' : '#ffe08a', sizeAttenuation: false, depthTest: false})));
+    group.add(new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(piPos, 3)), sharedMat(`pi:${sel}`, () => new THREE.PointsMaterial({size: sel ? 9 : 7, color: sel ? '#ffffff' : '#ffe08a', sizeAttenuation: false, depthTest: false}))));
     line.pis.forEach((p, i) => labels.push({v: world(p.x, p.y), text: `PI${i + 1}`, color: sel ? '#ffffff' : '#ffe9a8', dx: 6, dy: -10}));
     const step = (m.length || 0) > 400 ? 100 : 20;
     for (let st = step; st < (m.length || 0) - 1e-6; st += step) {
@@ -455,28 +478,24 @@ function drawDesigns(r, props) {
   function drawCorridor(d) {
     const m = d.mesh, edges = m.edges || {left: [], right: []}, axis = m.axis || [];
     if (axis.length < 2) return;
+    const edgeRuns = m.edgeRuns || [edges.left, edges.right];
     if (mode === '3D') {
-      if (m.triangles.length) {
-        const pos = new Float32Array(m.triangles.length * 9), col = new Float32Array(m.triangles.length * 9), c = new THREE.Color();
-        m.triangles.forEach((t, k) => { c.set(DESIGN_COLORS[m.types[k]] || '#b9c0c7'); t.forEach((i, j) => { const v = m.vertices[i]; world(v.x, v.y, v.z + lift * .5).toArray(pos, k * 9 + j * 3); c.toArray(col, k * 9 + j * 3); }); });
-        const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
-        group.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({vertexColors: true, side: THREE.DoubleSide, roughness: .9, flatShading: true})));
-      }
+      if (!final3D) faces(m);
       segments(m.hatch.flatMap(([a, b]) => [world(a.x, a.y, a.z + lift * 1.5), world(b.x, b.y, b.z + lift * 1.5)]), '#3a2418', .55, true);
       (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y, v.z + lift))), '#7dffb0', 1, true));
       (m.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y, v.z + lift))), '#ffd27a', .95, true));
-      [edges.left, edges.right].forEach(e => segments(polyline(e.map(v => world(v.x, v.y, v.z + lift))), '#fff1d6', 1, true));
+      edgeRuns.forEach(e => segments(polyline(e.map(v => world(v.x, v.y, v.z + lift))), '#fff1d6', 1, true));
       return;
     }
     const strip = [];
     m.triangles.forEach((t, k) => { if (m.types[k] === 'road') t.forEach(i => strip.push(world(m.vertices[i].x, m.vertices[i].y))); });
-    if (strip.length) { const g2 = new THREE.BufferGeometry().setFromPoints(strip); group.add(new THREE.Mesh(g2, new THREE.MeshBasicMaterial({color: '#c99a68', transparent: true, opacity: .42, side: THREE.DoubleSide, depthTest: false}))); }
+    if (strip.length) { const g2 = new THREE.BufferGeometry().setFromPoints(strip); group.add(new THREE.Mesh(g2, sharedMat('road2d', () => new THREE.MeshBasicMaterial({color: '#c99a68', transparent: true, opacity: .42, side: THREE.DoubleSide, depthTest: false})))); }
     const cutHatch = [], fillHatch = [];
     m.hatch.forEach(([a, b, md]) => (md === 'cut' ? cutHatch : fillHatch).push(world(a.x, a.y), world(b.x, b.y)));
     segments(cutHatch, '#ff9f6b', .8); segments(fillHatch, '#6fc3ff', .8);
     (m.daylightRuns || []).forEach(run => segments(polyline(run.map(v => world(v.x, v.y))), '#7dffb0'));
     (m.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y))), '#ffd27a', .7));
-    [edges.left, edges.right].forEach(e => segments(polyline(e.map(v => world(v.x, v.y))), '#fff1d6'));
+    edgeRuns.forEach(e => segments(polyline(e.map(v => world(v.x, v.y))), '#fff1d6'));
     labels.push({v: world(axis[0].x, axis[0].y), text: `Acesso · pista ${d.corridor.width.toLocaleString('pt-BR')} m`, color: '#ffe3bf', dx: 6, dy: 26});
   }
   // ---- Projeto: plataformas e taludes ----
@@ -485,23 +504,20 @@ function drawDesigns(r, props) {
     if (d.kind === 'corridor') { drawCorridor(d); continue; }
     const sel = d.platform.id === selectedPlatform;
     if (mode === '3D') {
-      const pos = new Float32Array(d.mesh.triangles.length * 9), col = new Float32Array(d.mesh.triangles.length * 9), c = new THREE.Color();
-      d.mesh.triangles.forEach((t, k) => { c.set(DESIGN_COLORS[d.mesh.types[k]] || '#b9c0c7'); t.forEach((i, j) => { const v = d.mesh.vertices[i]; world(v.x, v.y, v.z + lift * .5).toArray(pos, k * 9 + j * 3); c.toArray(col, k * 9 + j * 3); }); });
-      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3)); geo.computeVertexNormals();
-      group.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({vertexColors: true, side: THREE.DoubleSide, roughness: .85, flatShading: true})));
+      if (!final3D) faces(d.mesh);
       segments(d.mesh.hatch.flatMap(([a, b]) => [world(a.x, a.y, a.z + lift * 1.5), world(b.x, b.y, b.z + lift * 1.5)]), '#3a2418', .55, true); // hachura técnica nas rampas
-      segments(polyline(d.mesh.daylight.map(v => world(v.x, v.y, v.z + lift)), true), '#7dffb0', 1, true);
+      (d.mesh.daylightRuns || (d.mesh.daylight.length ? [[...d.mesh.daylight, d.mesh.daylight[0]]] : [])).forEach(run => segments(polyline(run.map(v => world(v.x, v.y, v.z + lift))), '#7dffb0', 1, true));
       segments(polyline(d.platform.polygon.map(v => world(v.x, v.y, (Number.isFinite(v.z) ? v.z : d.platform.elevation) + lift)), true), sel ? '#ffffff' : '#e7edf2', 1, true);
       (d.mesh.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y, v.z + lift))), '#ffd27a', .95, true));
     } else {
       const pos = new Float32Array(d.mesh.triangles.length * 9); let k = 0;
       d.mesh.triangles.forEach((t, n) => { if (d.mesh.types[n] !== 'platform') return; t.forEach(i => { const v = d.mesh.vertices[i]; world(v.x, v.y).toArray(pos, k); k += 3; }); });
       const g2 = new THREE.BufferGeometry(); g2.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, k), 3));
-      group.add(new THREE.Mesh(g2, new THREE.MeshBasicMaterial({color: sel ? '#d7dee5' : '#9aa7b2', transparent: true, opacity: sel ? .45 : .3, side: THREE.DoubleSide, depthTest: false})));
+      group.add(new THREE.Mesh(g2, sharedMat(`plat2d:${sel}`, () => new THREE.MeshBasicMaterial({color: sel ? '#d7dee5' : '#9aa7b2', transparent: true, opacity: sel ? .45 : .3, side: THREE.DoubleSide, depthTest: false}))));
       const cutHatch = [], fillHatch = [];
       d.mesh.hatch.forEach(([a, b, m]) => (m === 'cut' ? cutHatch : fillHatch).push(world(a.x, a.y), world(b.x, b.y)));
       segments(cutHatch, '#ff9f6b', .8); segments(fillHatch, '#6fc3ff', .8);
-      segments(polyline(d.mesh.daylight.map(v => world(v.x, v.y)), true), '#7dffb0');
+      (d.mesh.daylightRuns || (d.mesh.daylight.length ? [[...d.mesh.daylight, d.mesh.daylight[0]]] : [])).forEach(run => segments(polyline(run.map(v => world(v.x, v.y))), '#7dffb0'));
       (d.mesh.benchLines || []).forEach(l => segments(polyline(l.map(v => world(v.x, v.y))), '#ffd27a', .7));
       segments(polyline(d.platform.polygon.map(v => world(v.x, v.y)), true), sel ? '#ffffff' : '#e7edf2');
       const c = d.platform.polygon.reduce((s, v) => ({x: s.x + v.x / d.platform.polygon.length, y: s.y + v.y / d.platform.polygon.length}), {x: 0, y: 0});
@@ -510,4 +526,4 @@ function drawDesigns(r, props) {
   }
 }
 
-function disposeScene(scene) { scene.traverse(o => { o.geometry?.dispose(); if (o.material) { o.material.map?.dispose(); o.material.dispose(); } }); scene.clear(); }
+function disposeScene(scene) { scene.traverse(o => { o.geometry?.dispose(); if (o.material && !o.material.userData?.shared) { o.material.map?.dispose(); o.material.dispose(); } }); scene.clear(); }

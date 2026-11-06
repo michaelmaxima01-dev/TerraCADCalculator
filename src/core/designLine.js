@@ -184,7 +184,7 @@ function segmentIndex(info) {
  * Ponto mais próximo na base: distância, cota, estaca, lado (no sentido do traçado) e se cai além das pontas.
  * @returns {{d:number, z:number, s:number, side:'left'|'right', atEnd:boolean}}
  */
-export function lineNearest(info, x, y, {brute = false} = {}) {
+export function lineNearest(info, x, y, {brute = false, maxD = Infinity} = {}) {
   const {base, closed} = info, n = base.length;
   let best = {d: Infinity, z: 0, s: 0, side: 'right', atEnd: false}, bi = -1;
   if (n < 2) return best;
@@ -201,7 +201,8 @@ export function lineNearest(info, x, y, {brute = false} = {}) {
   };
   if (brute || segs < 16) { for (let i = 0; i < segs; i++) visit(i); return best; }
   const ix = segmentIndex(info);
-  if (x === ix.lx && y === ix.ly) return {...ix.last}; // mesma consulta repetida (ex.: refinamento e cota na mesma célula)
+  // mesma consulta repetida (ex.: refinamento e cota na mesma célula); um resultado "longe" só serve para limite menor ou igual
+  if (x === ix.lx && y === ix.ly && (ix.lexact || maxD <= ix.lcap)) return {...ix.last};
   const ci = Math.floor((x - ix.minX) / ix.cell), cj = Math.floor((y - ix.minY) / ix.cell), tick = ++ix.tick;
   if (tick > 2e9) { ix.stamp.fill(0); ix.tick = 1; }
   const far = Math.max(Math.abs(ci), Math.abs(cj), Math.abs(ci - ix.ni), Math.abs(cj - ix.nj)) + 1;
@@ -216,7 +217,10 @@ export function lineNearest(info, x, y, {brute = false} = {}) {
     }
     // tudo que falta está a pelo menos r·cell do ponto: pode parar quando o melhor já é mais perto (com folga de empate)
     if (best.d + 1e-9 < r * ix.cell) break;
+    if (r * ix.cell > maxD) break; // nada mais perto que o limite: o chamador só precisa saber que está longe
   }
-  ix.lx = x; ix.ly = y; ix.last = best;
+  const exact = best.d <= maxD || maxD === Infinity;
+  if (!exact) best = {...best, d: Infinity};
+  ix.lx = x; ix.ly = y; ix.last = best; ix.lexact = exact; ix.lcap = maxD;
   return {...best};
 }

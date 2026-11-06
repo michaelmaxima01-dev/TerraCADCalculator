@@ -23,7 +23,7 @@ import CubageTable from './components/CubageTable';
 import CorridorCard from './components/CorridorCard';
 import ServiceNotes from './components/ServiceNotes';
 import {validateCorridor, compileCorridor, gradeCorridor, corridorVolumes, corridorElevationAt, corridorBase, serviceNotes, serviceNotesCSV} from './core/corridor';
-import {projectEarthworks} from './core/earthworks';
+import {projectEarthworks, finalSurfaceMesh, finalSurfaceFilter} from './core/earthworks';
 import {validateDesignLine, moveVertex, insertVertex, removeVertex, checkVertices, nextName} from './core/designLine';
 import {gradeLine, lineVolumes} from './core/lineGrading';
 import {createSnapIndex} from './core/snap';
@@ -176,7 +176,25 @@ export default function AppV4() {
   const designs = useMemo(() => designMeshes.map(d => d.error ? d : {...d, volume: d.kind === 'corridor' ? designVolumes.get('c') ?? null : d.kind === 'line' ? (d.mesh.base.length ? designVolumes.get('l:' + d.line.id) ?? null : null) : designVolumes.get('p:' + d.platform.id) ?? null}), [designMeshes, designVolumes]);
   const validDesigns = useMemo(() => designs.filter(d => d.mesh), [designs]);
   const meshDesigns = useMemo(() => designMeshes.filter(d => d.mesh), [designMeshes]);
-  const designAt = useMemo(() => elevationAt && validDesigns.length ? designSurfaceFunction(validDesigns.filter(d => d.kind === 'platform').map(d => d.platform), elevationAt, validDesigns.filter(d => d.kind === 'line').map(d => d.line), gradeCtx, validDesigns.filter(d => d.kind === 'corridor').map(d => ({at: (x, y, T) => corridorElevationAt(d.info, x, y, T), base: corridorBase(d.info)}))) : null, [elevationAt, validDesigns, gradeCtx]);
+  const designAt = useMemo(() => elevationAt && validDesigns.length ? designSurfaceFunction(validDesigns.filter(d => d.kind === 'platform').map(d => d.platform), elevationAt, validDesigns.filter(d => d.kind === 'line').map(d => d.line), gradeCtx, validDesigns.filter(d => d.kind === 'corridor').map(d => ({kind: 'road', at: (x, y, T) => corridorElevationAt(d.info, x, y, T), base: corridorBase(d.info)}))) : null, [elevationAt, validDesigns, gradeCtx]);
+  // 3D e linhas de desenho pela superfície final combinada (o que se vê = o que se calcula)
+  const designBox = useMemo(() => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const d of validDesigns) for (const v of d.mesh.vertices) { if (v.x < minX) minX = v.x; if (v.x > maxX) maxX = v.x; if (v.y < minY) minY = v.y; if (v.y > maxY) maxY = v.y; }
+    if (!(maxX > minX)) return null; const pad = Math.max(maxX - minX, maxY - minY) * 0.01 + 0.5;
+    return {minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad};
+  }, [validDesigns]);
+  // no arraste fica a malha rápida de cada objeto; ao soltar, a superfície final combinada (≈ 0,3 s)
+  const finalSurface = useMemo(() => !liveEdit && ['3D', 'split'].includes(layout) && designAt && designBox ? finalSurfaceMesh(designAt, elevationAt, designBox, {maxCells: 80000}) : null, [layout, designAt, designBox, elevationAt, liveEdit]);
+  const displayDesigns = useMemo(() => {
+    if (!designAt) return meshDesigns;
+    const keep = finalSurfaceFilter(designAt, elevationAt), seg = ([a, b, md]) => keep([a, b]).length === 1 && keep([a, b])[0].length === 2;
+    return meshDesigns.map(d => {
+      const m = d.mesh, ring = r => r.length > 1 ? [...r, r[0]] : [], runs = d.kind === 'platform' ? [ring(m.daylight)] : d.kind === 'line' && d.line.closed ? (m.daylightRuns || [m.daylight]).map(ring) : (m.daylightRuns || [m.daylight]);
+      const bl = [], blk = []; (m.benchLines || []).forEach((l, k) => keep(l).forEach(r => { bl.push(r); blk.push(m.benchLineKinds?.[k]); }));
+      return {...d, mesh: {...m, daylightRuns: runs.flatMap(keep), hatch: m.hatch.filter(seg), benchLines: bl, benchLineKinds: blk, edgeRuns: m.edges ? [...keep(m.edges.left), ...keep(m.edges.right)] : undefined}};
+    });
+  }, [meshDesigns, designAt, elevationAt]);
   const frozenDesignAt = useRef(null); if (!liveEdit) frozenDesignAt.current = designAt; // 3D só se refaz ao soltar o arraste
   const designProfile = useMemo(() => {
     if (!profile || !designAt) return null; const n = 400, out = [];
@@ -203,7 +221,11 @@ export default function AppV4() {
   if (!liveEdit) lastTerrain3D.current = terrain3D;
   const gradeLine3D = useMemo(() => {
     if (!profile || gradeGeo.pvis.length < 2) return null;
-    return sampleGrade(gradeGeo, Math.max(profile.length / 300, 0.1)).map(p => { const c = pointAtStation(alignment, p.station); return c && p.z !== null ? {x: c.x, y: c.y, z: p.z} : null; }).filter(Boolean);
+    // estacas do greide (PVIs e curvas) + vértices do eixo + passo regular: a linha segue o eixo nas curvas em planta
+    const st = new Set(sampleGrade(gradeGeo, Math.max(profile.length / 300, 0.1)).map(p => p.station)); let acc = 0;
+    for (let i = 0; i < alignment.length; i++) { if (i) acc += Math.hypot(alignment[i].x - alignment[i - 1].x, alignment[i].y - alignment[i - 1].y); st.add(acc); }
+    for (let k = 0, step = Math.max(profile.length / 300, 0.5); k * step < profile.length; k++) st.add(k * step);
+    return [...st].sort((a, b) => a - b).map(s => { const c = pointAtStation(alignment, s), z = gradeElevation(gradeGeo, s); return c && Number.isFinite(z) ? {x: c.x, y: c.y, z} : null; }).filter(Boolean);
   }, [profile, gradeGeo, alignment]);
   const baseSnap = useMemo(() => {
     const segs = [];
@@ -218,11 +240,14 @@ export default function AppV4() {
     return {query: (x, y, r, m) => [baseSnap.query(x, y, r, m), draft.query(x, y, r, m)].filter(Boolean).sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.d - b.d)[0] || null};
   }, [baseSnap, pickDraft]);
   // total do projeto: uma superfície combinada (objetos sobrepostos não contam duas vezes)
-  const earthworks = useMemo(() => {
-    if (!elevationAt || !validDesigns.length) return {cut: 0, fill: 0, area: 0, overlap: false};
-    try { const e = projectEarthworks(validDesigns, {terrainAt: elevationAt, gradeCtx, maxCells: liveEdit ? 12000 : 250000, volumes: validDesigns.map(d => d.volume)}); return e ? {cut: e.cut, fill: e.fill, area: e.footprint, overlap: e.overlap, sum: e.sum} : {cut: 0, fill: 0, area: 0, overlap: false}; }
-    catch { return {cut: 0, fill: 0, area: 0, overlap: false}; }
-  }, [validDesigns, elevationAt, gradeCtx, liveEdit]);
+  // total do projeto pela superfície combinada, no ritmo dos volumes (no arraste: a cada ~0,2 s, na última caixa)
+  const designBoxRef = useRef(null); if (!liveEdit && designBox) designBoxRef.current = designBox;
+  const totalVolume = useMemo(() => {
+    const box = designBoxRef.current; if (!elevationAt || !box) return null;
+    const objs = [...volPlatforms.filter(p => p.visible !== false).map(p => ({kind: 'platform', platform: p})), ...volLines.filter(l => l.visible !== false).map(l => ({kind: 'line', line: l})), ...(volCorridorInfo?.ok ? [{kind: 'corridor', info: volCorridorInfo}] : [])];
+    try { return objs.length ? projectEarthworks(objs, {terrainAt: elevationAt, gradeCtx: volGradeCtx, maxCells: dragCells, bbox: box, volumes: [...designVolumes.values()]}) : null; } catch { return null; }
+  }, [elevationAt, volPlatforms, volLines, volCorridorInfo, volGradeCtx, dragCells, designVolumes, liveEdit ? null : designBox]);
+  const earthworks = useMemo(() => { const e = totalVolume; return e ? {cut: e.cut, fill: e.fill, area: e.footprint, overlap: e.overlap, sum: e.sum} : {cut: 0, fill: 0, area: 0, overlap: false}; }, [totalVolume]);
 
   // ---------- edição ----------
   const commit = useCallback((next, text) => { setHistory(h => [...h.slice(-19), doc]); setDoc(next); setSelected([]); setPickDraft([]); setRevision(v => v + 1); setMessage(text); }, [doc]);
@@ -482,7 +507,7 @@ export default function AppV4() {
   });
   const setLabel = (k, v) => { setPreset('custom'); setStyle(s => ({...s, [k]: v})); };
   const common = {points, triangles: mesh.triangles, terrain3D, constraints: mesh.constraints, style, tool, selected, pickDraft, visibleIndices, layers, presentation, groupColors, boundary, fitKey, snap, snapModes, snapAperture, snapIndex, crosshair, zoomSensitivity,
-    onPick, onEdge, onPlanClick, onNotice: setMessage, contours, contourStyle, alignment, profileSamples: profile?.samples, referenceZ, elevationAt, designAt: frozenDesignAt.current, designs: meshDesigns, selectedPlatform, selectedLine, handles, segments: handleSegments, activeHandle, onHandleDrag, onSegmentInsert, onHandleRemove,
+    onPick, onEdge, onPlanClick, onNotice: setMessage, contours, contourStyle, alignment, profileSamples: profile?.samples, referenceZ, elevationAt, designAt: frozenDesignAt.current, designs: displayDesigns, finalSurface, selectedPlatform, selectedLine, handles, segments: handleSegments, activeHandle, onHandleDrag, onSegmentInsert, onHandleRemove,
     sectionLines: layers.sections && (layout === 'sections' || profile) ? sectionLines : null, currentStation: profile ? currentStation : null, gradeLine3D};
   const panel = mode => <div key={mode} className={`viewport-panel ${mode === '2D' ? 'plan-panel' : 'model-panel'}`} data-testid={`panel-${mode}`}>
     <div className="panel-heading"><span>{mode === '2D' ? 'Planta' : 'Modelo 3D'}</span><small>{mode === '2D' ? (snap ? 'Atração F3 ligada' : 'Atração F3 desligada') : 'Terreno + projeto'}</small></div>

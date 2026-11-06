@@ -52,7 +52,10 @@ export function compileCorridor(alignment, gradeCtx, corridor) {
     axis = buildLineBase({pis: alignment, closed: false, elevation: {mode: 'grade', start: 0, slope: 0, drop: 0}}, null, {path: alignment, gradeAt: gradeCtx.gradeAt});
     warnings.push(...axis.warnings);
   }
-  const info = {ok: axis.base.length > 1, warnings, axis, half: c.width / 2, corridor: c};
+  const zs = axis.base.map(v => v.z), fall = c.crossfall / 100 * c.width / 2;
+  // eixo em planta só com os vértices originais (busca do ponto mais próximo barata); a cota sai do greide na estaca
+  let acc = 0; const raw = {closed: false, base: (alignment || []).map((p, i, a) => { if (i) acc += Math.hypot(p.x - a[i - 1].x, p.y - a[i - 1].y); return {x: p.x, y: p.y, z: 0, s: acc}; })}; raw.length = acc;
+  const info = {ok: axis.base.length > 1, warnings, axis, raw, gradeAt: gradeCtx?.gradeAt, half: c.width / 2, corridor: c, zMin: Math.min(...zs) - fall, zMax: Math.max(...zs) + fall};
   cache.set(corridor, {alignment, gradeCtx, info});
   return info;
 }
@@ -61,16 +64,21 @@ export function compileCorridor(alignment, gradeCtx, corridor) {
  * Posição do ponto em relação ao acesso: estaca, afastamento com sinal (+ esquerda), greide no eixo e se cai
  * além das pontas.
  */
-export function corridorLocate(info, x, y) {
-  const q = lineNearest(info.axis, x, y);
-  return {s: q.s, o: q.side === 'left' ? q.d : -q.d, d: q.d, g: q.z, atEnd: q.atEnd};
+export function corridorLocate(info, x, y, maxD = Infinity) {
+  const q = lineNearest(info.raw, x, y, {maxD});
+  const g = Number.isFinite(q.d) ? info.gradeAt(Math.min(Math.max(q.s, 0), info.raw.length)) : NaN;
+  return {s: q.s, o: q.side === 'left' ? q.d : -q.d, d: q.d, g, atEnd: q.atEnd};
 }
 
 /** Cota de projeto do acesso em (x,y) com terreno T; null fora da terraplenagem. */
 export function corridorElevationAt(info, x, y, T) {
   if (!info.ok) return null;
-  const c = info.corridor, q = corridorLocate(info, x, y);
-  if (q.atEnd) return null;
+  const c = info.corridor;
+  // alcance máximo do talude com este terreno: além dele não há projeto (evita varrer o eixo inteiro)
+  const rise = T === null || T === undefined ? 0 : Math.max(T - info.zMin, info.zMax - T, 0);
+  const reach = info.half + Math.max(slopeReach(rise, c.cutSlope, benchFor(c, 'cut')), slopeReach(rise, c.fillSlope, benchFor(c, 'fill'))) + 1e-6;
+  const q = corridorLocate(info, x, y, reach);
+  if (q.atEnd || !Number.isFinite(q.d)) return null;
   if (q.d <= info.half + 1e-9) return roadZ(c, q.g, q.o);
   if (T === null || T === undefined) return null;
   const ze = roadZ(c, q.g, Math.sign(q.o) * info.half), dd = q.d - info.half;
@@ -167,7 +175,7 @@ export function corridorRefine(info) {
   return (x, y, h) => n > 1 && (Math.abs(along(b[0], b[1], x, y)) < h || Math.abs(along(b[n - 1], {x: 2 * b[n - 1].x - b[n - 2].x, y: 2 * b[n - 1].y - b[n - 2].y}, x, y)) < h);
 }
 /** Base do acesso (a pista) para a combinação com outros objetos. */
-export const corridorBase = info => (x, y) => { if (!info.ok) return false; const q = corridorLocate(info, x, y); return !q.atEnd && q.d <= info.half + 1e-9; };
+export const corridorBase = info => (x, y) => { if (!info.ok) return false; const q = corridorLocate(info, x, y, info.half + 1e-9); return !q.atEnd && q.d <= info.half + 1e-9; };
 
 /**
  * Nota de serviço por estaca: terreno e greide no eixo, altura no eixo, bordos da pista e offsets (crista do corte

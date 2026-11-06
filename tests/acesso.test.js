@@ -155,3 +155,22 @@ test('término por profundidade com bermas de aterro: aviso em vez de ignorar ca
   const m = castSlopes(base, {closed: true, side: 'outside', terrainAt: () => 99, nearest: () => ({d: 1, z: 100}), ruleFor: md => ({H: 1, bench: md === 'fill' ? {height: 1, width: 1} : null}), spacing: 2, maxDistance: 20, depth: {end: {mode: 'depth', depth: 2, floorZ: null}, H: 1, bench: null}});
   assert.ok(m.warnings.some(w => /aterro não são aplicadas/.test(w)));
 });
+
+import {finalSurfaceMesh, finalSurfaceFilter} from '../src/core/earthworks.js';
+test('superfície final para o 3D: piso da plataforma inteiro, área e taludes classificados', () => {
+  const T = () => 100, P = sqP('P', 0, 0, 40, 95), f = designSurfaceFunction([P], T);
+  const m = finalSurfaceMesh(f, T, {minX: -20, minY: -20, maxX: 60, maxY: 60}, {cell: 0.5, maxCells: 1e6});
+  let area = 0; m.triangles.forEach((t, k) => { if (m.types[k] !== 'platform') return; const [a, b, c] = t.map(i => m.vertices[i]); area += Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / 2; t.forEach(i => close(m.vertices[i].z, 95, 1e-9)); });
+  assert.ok(Math.abs(area - 1600) < 1600 * 0.03, `área do piso ${area}`);
+  assert.ok(m.types.includes('cut')); assert.ok(!m.types.includes('fill'));
+  m.vertices.forEach(v => assert.ok(v.z >= 95 - 1e-9 && v.z <= 100 + 1e-9));
+});
+
+test('linhas recortadas pela superfície final: talude encoberto pelo piso vizinho some', () => {
+  const T = () => 100, A = sqP('A', -20, -20, 40, 95), B = sqP('B', 0, -20, 40, 95), f = designSurfaceFunction([A, B], T), keep = finalSurfaceFilter(f, T);
+  // offset (pé do talude no terreno, z = 100) de A: em x = 25 (dentro do piso de B) está encoberto; em x = -25 aparece
+  const runs = keep([{x: -25, y: 0, z: 100}, {x: -25, y: 5, z: 100}, {x: 25, y: 0, z: 100}, {x: 25, y: 5, z: 100}]);
+  assert.equal(runs.length, 1); assert.equal(runs[0][0].x, -25);
+  // bordo da pista/plataforma de B no próprio piso continua
+  assert.equal(keep([{x: 40, y: 0, z: 95}, {x: 40, y: 10, z: 95}]).length, 1);
+});
