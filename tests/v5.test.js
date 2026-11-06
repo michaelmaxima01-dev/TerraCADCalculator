@@ -113,3 +113,13 @@ test('validateProject abre v5 com rampa e bermas e continua abrindo v4', () => {
   assert.equal(r4.platforms[0].benches.enabled, false);
   assert.throws(() => validateProject({version: 8, points: pts, triangles: tri}), /Versão/);
 });
+
+// ---------- mão livre: fechar no 1º vértice e cliques repetidos ----------
+import {cleanRing, validatePolygon} from '../src/core/grading.js';
+test('cleanRing: fechar clicando no 1º vértice e cliques duplos não geram vértices repetidos', () => {
+  const sq = [{x: 0, y: 0}, {x: 10, y: 0}, {x: 10, y: 0.0004}, {x: 10, y: 10}, {x: 0, y: 10}, {x: 0, y: 0}];
+  const r = cleanRing(sq);
+  assert.deepEqual(r.map(p => [p.x, p.y]), [[0, 0], [10, 0], [10, 10], [0, 10]]);
+  assert.equal(validatePolygon(r).length, 4);
+  assert.equal(cleanRing([{x: 0, y: 0}, {x: 1, y: 0}]).length, 2);
+});

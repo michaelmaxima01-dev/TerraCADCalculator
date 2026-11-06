@@ -36,6 +36,14 @@ export function distanceToPolygon(x, y, poly) {
   return best;
 }
 
+// Desenho à mão livre: remove cliques repetidos (< 1 mm) e o fechamento sobre o 1º vértice.
+export function cleanRing(pts, tol = 1e-3) {
+  const out = [];
+  for (const p of pts || []) { const last = out.at(-1); if (!last || Math.hypot(last.x - p.x, last.y - p.y) >= tol) out.push(p); }
+  while (out.length > 2 && Math.hypot(out[0].x - out.at(-1).x, out[0].y - out.at(-1).y) < tol) out.pop();
+  return out;
+}
+
 export function validatePolygon(poly) {
   if (!Array.isArray(poly) || poly.length < 3) throw Error('A plataforma exige pelo menos três vértices.');
   if (poly.some(p => !p || !Number.isFinite(p.x) || !Number.isFinite(p.y))) throw Error('Plataforma com coordenadas inválidas.');

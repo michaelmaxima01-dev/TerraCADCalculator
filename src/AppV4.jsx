@@ -17,7 +17,7 @@ import {surfaceStats, volumeToPlane, balanceElevation} from './core/volumes';
 import {sampleProfile, profileContext} from './core/profile';
 import {gradeGeometry, gradeElevation, sampleGrade} from './core/grade';
 import {drapeBreakline} from './core/breaklines';
-import {gradePlatform, platformVolumes, designSurfaceFunction, validatePolygon, validatePlatform, meanTerrainInside, clipTerrainMesh, shiftPlatform, applyPlaneSlope, flattenPlatform, isRamp, platformVertexZ, BENCH_DEFAULT} from './core/grading';
+import {gradePlatform, platformVolumes, designSurfaceFunction, validatePolygon, cleanRing, validatePlatform, meanTerrainInside, clipTerrainMesh, shiftPlatform, applyPlaneSlope, flattenPlatform, isRamp, platformVertexZ, BENCH_DEFAULT} from './core/grading';
 import {pointAtStation, sectionStations, sampleSection, averageEndArea, cubageTable} from './core/sections';
 import CubageTable from './components/CubageTable';
 import {validateDesignLine, moveVertex, insertVertex, removeVertex} from './core/designLine';
@@ -39,7 +39,7 @@ const TOOL_HINTS = {
   breakline: 'Clique nós do levantamento ou pontos livres (assentados na TIN). Enter conclui e recalcula.',
   boundary: 'Selecione os pontos do perímetro em sequência. Enter fecha e recorta.',
   profile: 'Clique os vértices do eixo na planta. Enter gera o perfil.',
-  platform: 'Clique os vértices da plataforma (mín. 3). Enter fecha e gera os taludes.',
+  platform: 'Clique os vértices da plataforma (mín. 3). Clique no 1º vértice ou Enter para fechar e gerar os taludes. Pode criar quantas quiser.',
   line: 'Clique os PIs da linha. Enter conclui aberta; clique no 1º PI para fechar.'
 };
 const fmt = (v, d = 2) => Number.isFinite(v) ? v.toLocaleString('pt-BR', {minimumFractionDigits: d, maximumFractionDigits: d}) : '—';
@@ -253,7 +253,7 @@ export default function AppV4() {
   const onPick = useCallback(p => {
     if (busy) return;
     if (tool === 'boundary') { if (p.index === undefined) { setMessage('O contorno usa pontos do levantamento: aproxime a mira de um nó.'); return; } setSelected(s => s.at(-1) === p.index ? s : [...s, p.index]); return; }
-    if (tool === 'line' && pickDraft.length >= 3 && Math.hypot(pickDraft[0].x - p.x, pickDraft[0].y - p.y) < 1e-9) { finishRef.current({closed: true}); return; }
+    if ((tool === 'line' || tool === 'platform') && pickDraft.length >= 3 && Math.hypot(pickDraft[0].x - p.x, pickDraft[0].y - p.y) < 1e-9) { finishRef.current({closed: true}); return; }
     setPickDraft(d => { const last = d.at(-1); return last && Math.hypot(last.x - p.x, last.y - p.y) < 1e-9 ? d : [...d, p.index !== undefined ? {x: points[p.index].x, y: points[p.index].y, index: p.index} : {x: p.x, y: p.y}]; });
   }, [busy, tool, points, pickDraft]);
   const onEdge = useCallback((a, b) => {
@@ -277,7 +277,7 @@ export default function AppV4() {
       if (tool === 'line') {
         if (pickDraft.length < (closed ? 3 : 2)) throw Error(closed ? 'Para fechar, a linha precisa de pelo menos 3 PIs.' : 'A linha exige pelo menos 2 PIs.');
         const z0 = elevationAt?.(pickDraft[0].x, pickDraft[0].y);
-        const l = validateDesignLine({id: newId(), name: `Linha ${designLines.length + 1}`, pis: pickDraft.map(p => ({x: p.x, y: p.y})), closed, side: closed ? 'outside' : 'right', elevation: {mode: 'ramp', start: Math.round((z0 ?? stats.minZ ?? 0) * 100) / 100, slope: 0}});
+        const l = validateDesignLine({id: newId(), name: `Linha ${designLines.length + 1}`, pis: (closed ? cleanRing(pickDraft) : pickDraft).map(p => ({x: p.x, y: p.y})), closed, side: closed ? 'outside' : 'right', elevation: {mode: 'ramp', start: Math.round((z0 ?? stats.minZ ?? 0) * 100) / 100, slope: 0}});
         commit({...doc, designLines: [...designLines, l]}, `${l.name} criada (${closed ? 'fechada' : 'aberta'}, ${l.pis.length} PIs) na cota do terreno no 1º PI (${l.elevation.start.toFixed(2)}). Ajuste cota, rampa, lado e curvas no painel Projeto.`);
         setSelectedLine(l.id); setSideTab('design'); setTool('orbit'); return;
       }
@@ -288,7 +288,7 @@ export default function AppV4() {
       }
       if (tool === 'platform') {
         if (pickDraft.length < 3) throw Error('A plataforma exige pelo menos três vértices.');
-        const polygon = validatePolygon(pickDraft.map(p => ({x: p.x, y: p.y})));
+        const polygon = validatePolygon(cleanRing(pickDraft.map(p => ({x: p.x, y: p.y}))));
         const mean = meanTerrainInside(points, mesh.triangles, polygon, elevationAt);
         const p = validatePlatform({id: newId(), name: `Plataforma ${platforms.length + 1}`, polygon, elevation: Math.round((mean ?? stats.minZ ?? 0) * 100) / 100, cutSlope: 1, fillSlope: 1.5});
         commit({...doc, platforms: [...platforms, p]}, `${p.name} criada na cota média do terreno (${p.elevation.toFixed(2)}). Taludes 1:1 (corte) e 1,5:1 (aterro).`);
